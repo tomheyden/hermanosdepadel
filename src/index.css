@@ -1,0 +1,117 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: light;
+  }
+
+  html {
+    scroll-behavior: smooth;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
+  }
+
+  body {
+    @apply bg-paper text-ink font-body antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    /* Barlow Condensed reads cramped with negative tracking — keep it open. */
+    @apply font-display tracking-normal;
+  }
+
+  /* Visible focus ring for keyboard users across the app. */
+  :focus-visible {
+    @apply outline-none ring-2 ring-accent ring-offset-2 ring-offset-paper;
+  }
+}
+
+@layer components {
+  /* Section reveal: starts hidden, IntersectionObserver adds .is-visible.
+     Falls back to fully visible when motion is reduced (see media query). */
+  .reveal {
+    opacity: 0;
+    transform: translateY(28px);
+    transition:
+      opacity 0.7s cubic-bezier(0.16, 1, 0.3, 1),
+      transform 0.7s cubic-bezier(0.16, 1, 0.3, 1);
+    will-change: opacity, transform;
+  }
+
+  .reveal.is-visible {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .reveal {
+      opacity: 1;
+      transform: none;
+      transition: none;
+    }
+  }
+
+  /* ── Epic KO bracket ──────────────────────────────────────────────────
+     Real tournament-tree connector lines (desktop only). Each round (except
+     the final) is rendered as a stack of "pairs"; each pair draws an L-shaped
+     line from its two matches into the next round's match centre. */
+  @media (min-width: 1024px) {
+    .ko-pair {
+      position: relative;
+    }
+    /* horizontal stub leaving each match toward the joining line */
+    .ko-pair.has-next .ko-match::after {
+      content: '';
+      position: absolute;
+      top: 50%;
+      left: 100%;
+      width: 1.5rem;
+      height: 2px;
+      background: rgba(198, 241, 65, 0.45);
+    }
+    /* vertical line joining the pair's two match centres (at 25% / 75%) */
+    .ko-pair.has-next::before {
+      content: '';
+      position: absolute;
+      right: -1.5rem;
+      top: 25%;
+      bottom: 25%;
+      width: 2px;
+      background: rgba(198, 241, 65, 0.45);
+    }
+    /* stub from the pair midpoint into the next round */
+    .ko-pair.has-next::after {
+      content: '';
+      position: absolute;
+      right: -3rem;
+      top: 50%;
+      width: 1.5rem;
+      height: 2px;
+      background: rgba(198, 241, 65, 0.45);
+    }
+  }
+
+  .ko-champion-glow {
+    box-shadow:
+      0 0 0 1px rgba(198, 241, 65, 0.5),
+      0 0 40px -8px rgba(198, 241, 65, 0.55);
+  }
+
+  .btn-accent {
+    @apply inline-flex items-center justify-center gap-2 rounded-full bg-accent px-6 py-3
+      font-display text-lg font-semibold uppercase tracking-wide text-accent-ink
+      transition-transform duration-200 hover:-translate-y-0.5 active:translate-y-0
+      cursor-pointer;
+  }
+}
