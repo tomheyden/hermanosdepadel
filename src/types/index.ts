@@ -134,7 +134,12 @@ export interface MatchResult {
 export interface TournamentState {
   scenarioId: number;
   teams: Record<SlotId, Team>;
-  results: Record<string, MatchResult>; // keyed by matchId
+  results: Record<string, MatchResult>; // keyed by matchId — FINAL results only
+  /** epoch ms when a match was started (timer). Both courts of a slot share it. */
+  startedAt?: Record<string, number>;
+  /** in-progress live score (per matchId) while a match is active, before it is
+   *  finalised into `results`. Keeps standings/KO logic off live scores. */
+  liveScores?: Record<string, SetScore>;
   createdAt: number;
   /** false until the setup step (scenario + names) is confirmed. */
   setupComplete: boolean;

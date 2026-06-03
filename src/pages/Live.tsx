@@ -1,16 +1,18 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { isAuthed } from '../lib/auth';
+import { getAuthState, onAuthChange, signOut } from '../lib/auth';
 import { useTournament } from '../hooks/useTournament';
 import PasswordGate from '../components/live/PasswordGate';
 import Setup from '../components/live/Setup';
+import ActiveGamesAdmin from '../components/live/ActiveGamesAdmin';
 import ScheduleView from '../components/live/ScheduleView';
 import GroupStandings from '../components/live/GroupStandings';
 import BracketView from '../components/live/BracketView';
 import FinalStandings from '../components/live/FinalStandings';
 
-type Tab = 'schedule' | 'groups' | 'bracket' | 'final';
+type Tab = 'active' | 'schedule' | 'groups' | 'bracket' | 'final';
 const TABS: Array<{ id: Tab; label: string }> = [
+  { id: 'active', label: 'Aktive Spiele' },
   { id: 'schedule', label: 'Spielplan' },
   { id: 'groups', label: 'Gruppen' },
   { id: 'bracket', label: 'KO-Baum' },
@@ -18,11 +20,32 @@ const TABS: Array<{ id: Tab; label: string }> = [
 ];
 
 export default function Live() {
-  const [authed, setAuthedState] = useState(isAuthed());
-  const [tab, setTab] = useState<Tab>('schedule');
+  const [authed, setAuthed] = useState(false);
+  const [authLoaded, setAuthLoaded] = useState(false);
+  const [tab, setTab] = useState<Tab>('active');
   const { state, loaded, scenario, actions } = useTournament();
 
-  if (!authed) return <PasswordGate onUnlock={() => setAuthedState(true)} />;
+  useEffect(() => {
+    let active = true;
+    getAuthState().then((a) => {
+      if (!active) return;
+      setAuthed(a);
+      setAuthLoaded(true);
+    });
+    const unsub = onAuthChange(setAuthed);
+    return () => {
+      active = false;
+      unsub();
+    };
+  }, []);
+
+  if (!authLoaded) {
+    return (
+      <div className="flex min-h-[100svh] items-center justify-center text-muted">Lädt…</div>
+    );
+  }
+
+  if (!authed) return <PasswordGate onUnlock={() => setAuthed(true)} />;
 
   if (!loaded) {
     return (
@@ -35,8 +58,13 @@ export default function Live() {
   const handleReset = () => {
     if (window.confirm('Turnier wirklich zurücksetzen? Alle Ergebnisse und Teamnamen gehen verloren.')) {
       actions.reset();
-      setTab('schedule');
+      setTab('active');
     }
+  };
+
+  const handleLogout = async () => {
+    await signOut();
+    setAuthed(false);
   };
 
   return (
@@ -75,6 +103,12 @@ export default function Live() {
                 Reset
               </button>
             )}
+            <button
+              onClick={handleLogout}
+              className="rounded-full border border-ink/15 px-3.5 py-1.5 font-display text-sm font-semibold uppercase tracking-wide text-muted transition-colors hover:border-ink hover:text-ink cursor-pointer"
+            >
+              Abmelden
+            </button>
           </div>
         </div>
 
@@ -111,13 +145,29 @@ export default function Live() {
           state &&
           scenario && (
             <>
+              {tab === 'active' && (
+                <ActiveGamesAdmin
+                  scenario={scenario}
+                  teams={state.teams}
+                  results={state.results}
+                  startedAt={state.startedAt ?? {}}
+                  liveScores={state.liveScores ?? {}}
+                  onStartSlot={actions.startSlot}
+                  onClearStart={actions.clearSlotStart}
+                  onAdjust={actions.adjustScore}
+                  onFinish={actions.finishMatch}
+                />
+              )}
               {tab === 'schedule' && (
                 <ScheduleView
                   scenario={scenario}
                   teams={state.teams}
                   results={state.results}
+                  startedAt={state.startedAt ?? {}}
                   onSave={actions.setResult}
                   onClear={actions.clearResult}
+                  onStartSlot={actions.startSlot}
+                  onClearStart={actions.clearSlotStart}
                 />
               )}
               {tab === 'groups' && (

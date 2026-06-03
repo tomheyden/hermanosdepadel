@@ -78,28 +78,47 @@ Display- und Body-Font sind in `index.html` (Google-Fonts-Link) und
 `tailwind.config.js` (`fontFamily`) definiert: **Barlow Condensed** (Display) +
 **Barlow** (Body). Zum Tauschen beide Stellen anpassen.
 
-### Passwort (Admin-Bereich)
+### Backend & Login (Supabase)
 
-Das Passwort kommt aus der Umgebungsvariable **`VITE_ADMIN_PASSWORD`**:
+Die App läuft in **zwei Modi**, automatisch je nach Umgebungsvariablen:
 
-- **Lokal:** in `.env.local` setzen (Vorlage: `.env.example`). Diese Datei wird
-  nicht eingecheckt.
-- **Vercel:** unter _Settings → Environment Variables_ `VITE_ADMIN_PASSWORD`
-  anlegen (für Production/Preview), danach **neu deployen** — der Wert wird beim
-  Build eingebacken.
-- Fällt die Variable weg, greift der Default `padel2026` (`src/lib/auth.ts`).
+| | Ohne Supabase | Mit Supabase |
+| --- | --- | --- |
+| Speicher | localStorage (pro Browser) | geteilte Postgres-DB |
+| Live-Sync | nur zwischen Tabs desselben Browsers | **alle Geräte** (Realtime) |
+| Admin-Login | einfaches Passwort (`VITE_ADMIN_PASSWORD`) | **echter E-Mail/Passwort-Login** |
+| Sicherheit | Komfort-Gate (kein echter Schutz) | RLS: nur eingeloggt darf schreiben |
 
-> ⚠️ **Kein echter Schutz.** Die App ist ein statischer Vite-Build; `VITE_`-Werte
-> landen im ausgelieferten JavaScript und sind im Browser sichtbar. Der Gate
-> hält den Admin-Bereich nur vor versehentlichem Zugriff fern. Die
-> Turnier-Ansicht `/turnier` ist bewusst **ohne** Passwort.
+**Einrichtung (einmalig):**
+
+1. **SQL ausführen:** Inhalt von [`supabase/schema.sql`](supabase/schema.sql) im
+   Supabase-Dashboard → _SQL Editor_ ausführen (legt Tabelle, RLS-Policies und
+   Realtime an).
+2. **Admin-Konto:** _Authentication → Users → Add user_ (E-Mail + Passwort,
+   „Auto Confirm" an).
+3. **Signups sperren:** _Authentication → Sign In / Providers → Email →
+   „Allow new users to sign up" ausschalten_ (sonst könnte sich jeder anmelden
+   und schreiben).
+4. **Keys eintragen:** in `.env.local` und bei Vercel:
+   - `VITE_SUPABASE_URL` = Projekt-URL
+   - `VITE_SUPABASE_ANON_KEY` = _Settings → API → „anon public"_ (darf öffentlich sein)
+5. **Deployen / Dev neu starten** — der Login wird automatisch zum E-Mail-Login.
+
+Die Turnier-Ansicht `/turnier` ist bewusst **ohne** Login (öffentlich lesbar).
+
+> Ohne Supabase-Keys bleibt der Fallback aktiv: Passwort aus
+> `VITE_ADMIN_PASSWORD` (Default `padel2026`). ⚠️ Dieser Fallback ist nur ein
+> Client-Gate (Wert steckt im Bundle), **kein** echter Schutz — echte Sicherheit
+> gibt es nur über den Supabase-Login.
 
 ### Deployment auf Vercel
 
 - Framework wird als **Vite** erkannt. Build: `npm run build`, Output: `dist`.
 - `vercel.json` enthält ein SPA-Rewrite (`/(.*) → /index.html`), damit
   Deep-Links wie `/admin` oder `/turnier` auch bei direktem Aufruf/Reload laden.
-- Env-Variable `VITE_ADMIN_PASSWORD` setzen (siehe oben) und deployen.
+- Env-Variablen setzen: `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` (und
+  optional `VITE_ADMIN_PASSWORD` als Fallback). Nach Änderungen **neu deployen**
+  (Werte werden beim Build eingebacken).
 
 ---
 
@@ -148,9 +167,11 @@ Komponenten greifen **nie** direkt auf `localStorage` zu, sondern auf die
 `Storage`-Interface mit `load` / `save` / `clear` / `subscribe` — alle Methoden
 sind bereits `Promise`-basiert.
 
-Für einen Wechsel auf **Supabase/Firebase** genügt es, eine neue Klasse zu
-schreiben, die dasselbe Interface erfüllt, und die exportierte `storage`-Instanz
-am Dateiende auszutauschen. Kein weiterer Code muss angefasst werden.
+Genau das ist umgesetzt: `storage.ts` enthält neben dem `LocalStorageBackend`
+ein **`SupabaseBackend`** (geteilte DB + Realtime). Welches genutzt wird, hängt
+allein davon ab, ob die Supabase-Keys gesetzt sind — die Komponenten/Hooks
+bleiben unverändert. Ein Wechsel auf z.B. Firebase wäre dasselbe Muster: neue
+Klasse, gleiches Interface.
 
 ### Neues Szenario hinzufügen
 
