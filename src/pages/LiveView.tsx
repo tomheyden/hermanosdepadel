@@ -78,7 +78,11 @@ function Beamer({
   const [tab, setTab] = useState<Tab>('active');
 
   const qualification = computeQualification(scenario, teams, results);
-  const bracket = resolveBracket(scenario, qualification.seeds, results);
+  const bracket = resolveBracket(
+    scenario,
+    qualification.complete ? qualification.seeds : [],
+    results,
+  );
   const places = computeFinalStandings(bracket);
 
   return (

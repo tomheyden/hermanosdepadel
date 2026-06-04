@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { MatchResult, Scenario, SlotId, SlotRef, Team } from '../../types';
-import { computeQualification } from '../../lib/qualification';
+import { computeQualification, seedLabel } from '../../lib/qualification';
 import { resolveBracket, computeFinalStandings } from '../../lib/bracket';
 import { teamName } from '../../lib/display';
 import { TrophyIcon } from '../icons';
@@ -18,13 +18,19 @@ interface Props {
 export default function BracketView({ scenario, teams, results, onSave, onClear }: Props) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const qualification = computeQualification(scenario, teams, results);
-  const bracket = resolveBracket(scenario, qualification.seeds, results);
+  // Only fill the KO with real teams once the group phase is decided; until
+  // then the slots show "Gruppensieger 1" etc.
+  const bracket = resolveBracket(
+    scenario,
+    qualification.complete ? qualification.seeds : [],
+    results,
+  );
   const places = computeFinalStandings(bracket);
   const champion = places?.find((p) => p.place === 1);
 
   const editing = editingId ? bracket.find((m) => m.def.id === editingId) : null;
   const describe = (ref: SlotRef): string => {
-    if (ref.type === 'seed') return `Qualifikant ${ref.seed}`;
+    if (ref.type === 'seed') return seedLabel(scenario, ref.seed);
     const src = scenario.koSchedule.find((m) => m.id === ref.matchId);
     return `${ref.type === 'winner' ? 'Sieger' : 'Verlierer'} ${src?.label ?? ''}`.trim();
   };

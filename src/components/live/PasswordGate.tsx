@@ -26,7 +26,15 @@ export default function PasswordGate({ onUnlock }: { onUnlock: () => void }) {
       const err = await signInWithEmail(email.trim(), password);
       setBusy(false);
       if (err) {
-        setError('Login fehlgeschlagen. E-Mail/Passwort prüfen.');
+        // surface the real Supabase reason (e.g. "Invalid login credentials",
+        // "Email not confirmed") so the cause is obvious.
+        const hint =
+          /not confirmed/i.test(err)
+            ? 'E-Mail ist noch nicht bestätigt — in Supabase unter Authentication → Users bestätigen.'
+            : /invalid login/i.test(err)
+              ? 'E-Mail oder Passwort falsch (oder Konto existiert nicht in diesem Projekt).'
+              : err;
+        setError(hint);
         return;
       }
       onUnlock();

@@ -44,6 +44,27 @@ function bracketPairs(n: number): Array<[number, number]> {
   throw new Error(`Unsupported KO size: ${n}`);
 }
 
+/**
+ * Human label for a KO seed slot, shown until the qualifier is actually
+ * determined. Seeds are ordered winners-first, then runners-up, then wildcards,
+ * so the tier can be derived from the seed number + the scenario's config.
+ */
+export function seedLabel(scenario: Scenario, seed: number): string {
+  const groups = scenario.groups.length;
+  const q = scenario.qualification;
+  if (seed <= groups) return `Gruppensieger ${seed}`;
+  let base = groups;
+  if (q.topPerGroup >= 2) {
+    if (seed <= base + groups) return `Gruppenzweiter ${seed - base}`;
+    base += groups;
+  }
+  if (q.bestRunnersUp) {
+    const word = q.bestRunnersUpRank === 3 ? 'Gruppendritter' : 'Gruppenzweiter';
+    return `Bester ${word} ${seed - base}`;
+  }
+  return `Qualifikant ${seed}`;
+}
+
 export function computeQualification(
   scenario: Scenario,
   teams: Record<SlotId, Team>,

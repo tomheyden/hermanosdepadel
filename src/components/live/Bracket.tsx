@@ -1,6 +1,7 @@
 import type { KoStage, MatchResult, Scenario, SlotId, SlotRef, Team } from '../../types';
 import type { ResolvedKoMatch } from '../../lib/bracket';
 import { evaluateMatch } from '../../lib/match';
+import { seedLabel } from '../../lib/qualification';
 import { teamName } from '../../lib/display';
 import { TrophyIcon } from '../icons';
 
@@ -37,7 +38,7 @@ export default function Bracket({ scenario, teams, results, bracket, onEdit }: P
   const rounds = [qf.length ? qf : null, sf, [final]].filter(Boolean) as ResolvedKoMatch[][];
 
   const describe = (ref: SlotRef): string => {
-    if (ref.type === 'seed') return `Qualifikant ${ref.seed}`;
+    if (ref.type === 'seed') return seedLabel(scenario, ref.seed);
     const src = scenario.koSchedule.find((m) => m.id === ref.matchId);
     return `${ref.type === 'winner' ? 'Sieger' : 'Verlierer'} ${src?.label ?? ''}`.trim();
   };
@@ -45,31 +46,43 @@ export default function Bracket({ scenario, teams, results, bracket, onEdit }: P
   const ctx = { teams, results, describe, onEdit };
 
   return (
-    <div className="flex flex-col gap-10 lg:flex-row lg:items-stretch lg:gap-12">
-      {rounds.map((round, ri) => {
-        const isFinalCol = ri === rounds.length - 1;
-        return (
-          <div key={ri} className="flex flex-1 flex-col">
-            <RoundHeader title={isFinalCol ? 'Finale' : STAGE_TITLES[round[0].def.stage]} />
-            {isFinalCol ? (
-              <div className="flex flex-1 flex-col justify-around gap-8">
-                <Card variant="final" m={final} {...ctx} />
-                {p3 && <Card variant="p3" m={p3} {...ctx} />}
-              </div>
-            ) : (
-              <div className="flex flex-1 flex-col justify-around gap-8">
-                {chunkPairs(round).map((pair, pi) => (
-                  <div key={pi} className="ko-pair has-next flex flex-col justify-around gap-8">
-                    {pair.map((m) => (
-                      <Card key={m.def.id} variant="match" m={m} {...ctx} />
-                    ))}
-                  </div>
-                ))}
-              </div>
-            )}
+    <div>
+      {/* tournament tree — final column holds ONLY the final (centred) so the
+          connector lines from each round land on the next match's centre. */}
+      <div className="flex flex-col gap-10 lg:flex-row lg:items-stretch lg:gap-12">
+        {rounds.map((round, ri) => {
+          const isFinalCol = ri === rounds.length - 1;
+          return (
+            <div key={ri} className="flex flex-1 flex-col">
+              <RoundHeader title={isFinalCol ? 'Finale' : STAGE_TITLES[round[0].def.stage]} />
+              {isFinalCol ? (
+                <div className="flex flex-1 flex-col justify-center">
+                  <Card variant="final" m={final} {...ctx} />
+                </div>
+              ) : (
+                <div className="flex flex-1 flex-col justify-around gap-8">
+                  {chunkPairs(round).map((pair, pi) => (
+                    <div key={pi} className="ko-pair has-next flex flex-col justify-around gap-8">
+                      {pair.map((m) => (
+                        <Card key={m.def.id} variant="match" m={m} {...ctx} />
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* 3rd-place match sits apart from the tree (it's fed by the SF losers). */}
+      {p3 && (
+        <div className="mt-10 border-t border-paper/10 pt-8">
+          <div className="lg:max-w-md">
+            <Card variant="p3" m={p3} {...ctx} />
           </div>
-        );
-      })}
+        </div>
+      )}
     </div>
   );
 }

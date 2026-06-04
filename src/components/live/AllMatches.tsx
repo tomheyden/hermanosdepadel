@@ -2,6 +2,7 @@ import type { MatchFormat, MatchResult, Scenario, SetScore, SlotId, SlotRef, Tea
 import type { ResolvedKoMatch } from '../../lib/bracket';
 import { evaluateMatch } from '../../lib/match';
 import { matchStatus, remainingSeconds, formatMMSS, type LiveStatus } from '../../lib/liveStatus';
+import { seedLabel } from '../../lib/qualification';
 import { timeToMinutes } from '../../lib/schedule';
 import { teamName } from '../../lib/display';
 import { useTicker } from '../../hooks/useTicker';
@@ -34,7 +35,7 @@ export default function AllMatches({ scenario, teams, results, bracket, startedA
   const nowMs = useTicker();
 
   const describe = (ref: SlotRef): string => {
-    if (ref.type === 'seed') return `Qualifikant ${ref.seed}`;
+    if (ref.type === 'seed') return seedLabel(scenario, ref.seed);
     const src = scenario.koSchedule.find((m) => m.id === ref.matchId);
     return `${ref.type === 'winner' ? 'Sieger' : 'Verlierer'} ${src?.label ?? ''}`.trim();
   };
