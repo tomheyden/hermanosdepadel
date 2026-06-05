@@ -134,6 +134,9 @@ export interface MatchResult {
 export interface TournamentState {
   scenarioId: number;
   teams: Record<SlotId, Team>;
+  /** optional custom group labels, keyed by GroupId. Falls back to the scenario
+   *  default ("Gruppe 1") when absent/empty. */
+  groupLabels?: Record<GroupId, string>;
   results: Record<string, MatchResult>; // keyed by matchId — FINAL results only
   /** epoch ms when a match was started (timer). Both courts of a slot share it. */
   startedAt?: Record<string, number>;
@@ -141,9 +144,35 @@ export interface TournamentState {
    *  finalised into `results`. Keeps standings/KO logic off live scores. */
   liveScores?: Record<string, SetScore>;
   createdAt: number;
-  /** false until the setup step (scenario + names) is confirmed. */
+  /** false until the basics step (scenario + date) is confirmed. */
   setupComplete: boolean;
+  /** scheduled day + first-match start time, datetime-local string
+   *  ("2026-07-05T11:10"). The whole plan is shifted so the first group match
+   *  lands on this clock time. */
+  tournamentDate?: string;
+  /** epoch ms when the admin went LIVE: scoring + the time-aware "next / due"
+   *  detection are active. Only meaningful for the published tournament. */
+  tournamentStartedAt?: number;
 }
+
+/**
+ * A saved tournament inside the library — a TournamentState plus identity.
+ * Whether it is *public* is decided by the library's `publishedId`, never by a
+ * per-tournament flag, so only ever ONE tournament is published at a time.
+ */
+export interface Tournament extends TournamentState {
+  id: string;
+  title: string;
+}
+
+/** The whole admin library: many tournaments, at most one published. */
+export interface TournamentLibrary {
+  tournaments: Tournament[];
+  publishedId: string | null;
+}
+
+/** Lifecycle phase derived from the flags + library publish pointer. */
+export type TournamentPhase = 'setup' | 'ready' | 'published' | 'live';
 
 // ── Derived / computed types (not persisted) ─────────────────────────────────
 /** One row of a group's live standings table. */

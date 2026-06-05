@@ -1,72 +1,121 @@
-import { useCallback, useEffect, useState } from 'react';
-import { storage } from '../lib/storage';
-import { getScenario } from '../data/scenarios';
-import type { MatchResult, SetScore, SlotId, Team, TournamentState } from '../types';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { newTournamentId, storage } from '../lib/storage';
+import { deriveScenario, getScenario } from '../data/scenarios';
+import type {
+  GroupId,
+  MatchResult,
+  SetScore,
+  SlotId,
+  Team,
+  Tournament,
+  TournamentLibrary,
+  TournamentPhase,
+} from '../types';
 
-/**
- * Central tournament state. Loads from the storage abstraction on mount, keeps
- * an in-memory copy, and persists every mutation. Also subscribes to external
- * changes (other tabs) so the dashboard and the /live/view beamer stay in sync.
- */
-export function useTournament() {
-  const [state, setState] = useState<TournamentState | null>(null);
+const EMPTY_LIBRARY: TournamentLibrary = { tournaments: [], publishedId: null };
+
+/** Default team roster for a scenario (names = "Gruppe N · Team i"). */
+function buildTeams(scenarioId: number): Record<SlotId, Team> {
+  const scenario = getScenario(scenarioId);
+  const teams: Record<SlotId, Team> = {};
+  if (!scenario) return teams;
+  for (const group of scenario.groups) {
+    group.slots.forEach((slot, i) => {
+      teams[slot] = {
+        id: slot,
+        name: `${group.label} · Team ${i + 1}`,
+        player1: '',
+        player2: '',
+        group: group.id,
+      };
+    });
+  }
+  return teams;
+}
+
+/** Lifecycle phase of a tournament, given which one is published. */
+export function phaseOf(t: Tournament | null, publishedId: string | null): TournamentPhase {
+  if (!t || !t.setupComplete) return 'setup';
+  if (publishedId !== t.id) return 'ready';
+  if (!t.tournamentStartedAt) return 'published';
+  return 'live';
+}
+
+// ============================================================================
+//  Admin hook — the whole library plus the currently edited tournament.
+// ============================================================================
+export function useLibrary() {
+  const [library, setLibrary] = useState<TournamentLibrary | null>(null);
   const [loaded, setLoaded] = useState(false);
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const activeRef = useRef<string | null>(null);
+  activeRef.current = activeId;
 
   useEffect(() => {
-    let active = true;
-    storage.load().then((s) => {
-      if (!active) return;
-      setState(s);
+    let alive = true;
+    storage.load().then((lib) => {
+      if (!alive) return;
+      setLibrary(lib);
       setLoaded(true);
     });
-    const unsub = storage.subscribe((s) => setState(s));
+    const unsub = storage.subscribe((lib) => setLibrary(lib));
     return () => {
-      active = false;
+      alive = false;
       unsub();
     };
   }, []);
 
-  // Persist + update local copy in one go.
-  const commit = useCallback((next: TournamentState) => {
-    setState(next);
-    void storage.save(next);
+  /** Update the active tournament in place and persist. */
+  const mutateActive = useCallback((updater: (t: Tournament) => Tournament) => {
+    setLibrary((prev) => {
+      if (!prev) return prev;
+      const id = activeRef.current;
+      const idx = prev.tournaments.findIndex((t) => t.id === id);
+      if (idx < 0) return prev;
+      const tournaments = [...prev.tournaments];
+      tournaments[idx] = updater(tournaments[idx]);
+      const next = { ...prev, tournaments };
+      void storage.save(next);
+      return next;
+    });
   }, []);
 
-  /** Create a fresh tournament for a scenario (default team names = slot ids). */
-  const initTournament = useCallback(
-    (scenarioId: number) => {
-      const scenario = getScenario(scenarioId);
-      if (!scenario) return;
-      const teams: Record<SlotId, Team> = {};
-      for (const group of scenario.groups) {
-        group.slots.forEach((slot, i) => {
-          teams[slot] = {
-            id: slot,
-            name: `${group.label} · Team ${i + 1}`,
-            player1: '',
-            player2: '',
-            group: group.id,
-          };
-        });
-      }
-      commit({
+  // ── Library-level actions ──────────────────────────────────────────────────
+  const createTournament = useCallback(
+    (title: string, scenarioId: number, tournamentDate?: string) => {
+      if (!getScenario(scenarioId)) return;
+      const id = newTournamentId();
+      const tournament: Tournament = {
+        id,
+        title: title.trim() || 'Neues Turnier',
         scenarioId,
-        teams,
+        tournamentDate,
+        teams: buildTeams(scenarioId),
+        groupLabels: {},
         results: {},
         createdAt: Date.now(),
-        setupComplete: false,
+        setupComplete: true,
+      };
+      setLibrary((prev) => {
+        const base = prev ?? EMPTY_LIBRARY;
+        const next = { ...base, tournaments: [...base.tournaments, tournament] };
+        void storage.save(next);
+        return next;
       });
+      setActiveId(id);
     },
-    [commit],
+    [],
   );
 
-  const updateTeam = useCallback(
-    (slot: SlotId, patch: Partial<Team>) => {
-      setState((prev) => {
+  const renameTournament = useCallback(
+    (id: string, title: string) => {
+      setLibrary((prev) => {
         if (!prev) return prev;
         const next = {
           ...prev,
-          teams: { ...prev.teams, [slot]: { ...prev.teams[slot], ...patch } },
+          tournaments: prev.tournaments.map((t) =>
+            t.id === id ? { ...t, title: title.trim() || t.title } : t,
+          ),
         };
         void storage.save(next);
         return next;
@@ -75,135 +124,276 @@ export function useTournament() {
     [],
   );
 
-  const confirmSetup = useCallback(() => {
-    setState((prev) => {
+  const duplicateTournament = useCallback((id: string) => {
+    setLibrary((prev) => {
       if (!prev) return prev;
-      const next = { ...prev, setupComplete: true };
+      const src = prev.tournaments.find((t) => t.id === id);
+      if (!src) return prev;
+      const copy: Tournament = {
+        ...src,
+        id: newTournamentId(),
+        title: `${src.title} (Kopie)`,
+        results: {},
+        startedAt: {},
+        liveScores: {},
+        tournamentStartedAt: undefined,
+        createdAt: Date.now(),
+      };
+      const next = { ...prev, tournaments: [...prev.tournaments, copy] };
       void storage.save(next);
       return next;
     });
   }, []);
 
-  const setResult = useCallback((result: MatchResult) => {
-    setState((prev) => {
+  const deleteTournament = useCallback((id: string) => {
+    setLibrary((prev) => {
       if (!prev) return prev;
-      const next = {
-        ...prev,
-        results: { ...prev.results, [result.matchId]: result },
+      const next: TournamentLibrary = {
+        tournaments: prev.tournaments.filter((t) => t.id !== id),
+        publishedId: prev.publishedId === id ? null : prev.publishedId,
       };
       void storage.save(next);
       return next;
     });
+    setActiveId((cur) => (cur === id ? null : cur));
   }, []);
 
-  const clearResult = useCallback((matchId: string) => {
-    setState((prev) => {
+  /** Publish a tournament — automatically replaces any previously published one. */
+  const publishTournament = useCallback(
+    (id: string) => {
+      setLibrary((prev) => {
+        if (!prev) return prev;
+        const next = { ...prev, publishedId: id };
+        void storage.save(next);
+        return next;
+      });
+    },
+    [],
+  );
+
+  const unpublishTournament = useCallback(() => {
+    setLibrary((prev) => {
       if (!prev) return prev;
-      const results = { ...prev.results };
-      delete results[matchId];
-      const next = { ...prev, results };
+      const next = { ...prev, publishedId: null };
       void storage.save(next);
       return next;
     });
   }, []);
 
-  const reset = useCallback(() => {
-    setState(null);
-    void storage.clear();
-  }, []);
+  const selectTournament = useCallback((id: string) => setActiveId(id), []);
+  const backToOverview = useCallback(() => setActiveId(null), []);
 
-  /** Start one or more matches (both courts of a slot share the same start).
-   *  Initialises a 0:0 live score so they become "active". */
-  const startSlot = useCallback((matchIds: string[]) => {
-    setState((prev) => {
-      if (!prev) return prev;
-      const now = Date.now();
-      const startedAt = { ...(prev.startedAt ?? {}) };
-      const liveScores = { ...(prev.liveScores ?? {}) };
-      for (const id of matchIds) {
-        startedAt[id] = now;
-        liveScores[id] = { home: 0, away: 0 };
-      }
-      const next = { ...prev, startedAt, liveScores };
-      void storage.save(next);
-      return next;
-    });
-  }, []);
+  // ── Per-active tournament mutations ────────────────────────────────────────
+  const updateTeam = useCallback(
+    (slot: SlotId, patch: Partial<Team>) => {
+      mutateActive((t) => ({ ...t, teams: { ...t.teams, [slot]: { ...t.teams[slot], ...patch } } }));
+    },
+    [mutateActive],
+  );
 
-  /** Clear timer + live score for matches (e.g. misclick / restart a slot). */
-  const clearSlotStart = useCallback((matchIds: string[]) => {
-    setState((prev) => {
-      if (!prev) return prev;
-      const startedAt = { ...(prev.startedAt ?? {}) };
-      const liveScores = { ...(prev.liveScores ?? {}) };
-      for (const id of matchIds) {
-        delete startedAt[id];
-        delete liveScores[id];
-      }
-      const next = { ...prev, startedAt, liveScores };
-      void storage.save(next);
-      return next;
-    });
-  }, []);
+  const setGroupLabel = useCallback(
+    (group: GroupId, label: string) => {
+      mutateActive((t) => {
+        const groupLabels = { ...(t.groupLabels ?? {}) };
+        if (label.trim()) groupLabels[group] = label;
+        else delete groupLabels[group];
+        return { ...t, groupLabels };
+      });
+    },
+    [mutateActive],
+  );
 
-  /** Live +/- on the in-progress score of an active match (clamped at 0). */
-  const adjustScore = useCallback((matchId: string, side: 'home' | 'away', delta: number) => {
-    setState((prev) => {
-      if (!prev) return prev;
-      const current: SetScore = prev.liveScores?.[matchId] ?? { home: 0, away: 0 };
-      const updated: SetScore = { ...current, [side]: Math.max(0, current[side] + delta) };
-      const liveScores = { ...(prev.liveScores ?? {}), [matchId]: updated };
-      const next = { ...prev, liveScores };
-      void storage.save(next);
-      return next;
-    });
-  }, []);
+  const setTournamentDate = useCallback(
+    (tournamentDate: string) => mutateActive((t) => ({ ...t, tournamentDate })),
+    [mutateActive],
+  );
 
-  /** Finalise an active match: live score → results, remove from liveScores. */
-  const finishMatch = useCallback((matchId: string) => {
-    setState((prev) => {
-      if (!prev) return prev;
-      const score = prev.liveScores?.[matchId] ?? { home: 0, away: 0 };
-      const results = { ...prev.results, [matchId]: { matchId, sets: [score] } };
-      const liveScores = { ...(prev.liveScores ?? {}) };
-      delete liveScores[matchId];
-      const next = { ...prev, results, liveScores };
-      void storage.save(next);
-      return next;
-    });
-  }, []);
+  const goLive = useCallback(
+    () => mutateActive((t) => ({ ...t, tournamentStartedAt: Date.now() })),
+    [mutateActive],
+  );
 
-  /** Re-open a finalised match for corrections (result → live score again). */
-  const reopenMatch = useCallback((matchId: string) => {
-    setState((prev) => {
-      if (!prev) return prev;
-      const score = prev.results[matchId]?.sets[0] ?? { home: 0, away: 0 };
-      const results = { ...prev.results };
-      delete results[matchId];
-      const startedAt = { ...(prev.startedAt ?? {}), [matchId]: prev.startedAt?.[matchId] ?? Date.now() };
-      const liveScores = { ...(prev.liveScores ?? {}), [matchId]: score };
-      const next = { ...prev, results, startedAt, liveScores };
-      void storage.save(next);
-      return next;
-    });
-  }, []);
+  const endLive = useCallback(
+    () => mutateActive((t) => ({ ...t, tournamentStartedAt: undefined })),
+    [mutateActive],
+  );
+
+  const setResult = useCallback(
+    (result: MatchResult) =>
+      mutateActive((t) => ({ ...t, results: { ...t.results, [result.matchId]: result } })),
+    [mutateActive],
+  );
+
+  const clearResult = useCallback(
+    (matchId: string) =>
+      mutateActive((t) => {
+        const results = { ...t.results };
+        delete results[matchId];
+        return { ...t, results };
+      }),
+    [mutateActive],
+  );
+
+  /** Wipe results + timers (keeps config + names), back to the published plan. */
+  const resetResults = useCallback(
+    () =>
+      mutateActive((t) => ({
+        ...t,
+        results: {},
+        startedAt: {},
+        liveScores: {},
+        tournamentStartedAt: undefined,
+      })),
+    [mutateActive],
+  );
+
+  const startSlot = useCallback(
+    (matchIds: string[]) =>
+      mutateActive((t) => {
+        const now = Date.now();
+        const startedAt = { ...(t.startedAt ?? {}) };
+        const liveScores = { ...(t.liveScores ?? {}) };
+        for (const id of matchIds) {
+          startedAt[id] = now;
+          liveScores[id] = { home: 0, away: 0 };
+        }
+        return { ...t, startedAt, liveScores };
+      }),
+    [mutateActive],
+  );
+
+  const clearSlotStart = useCallback(
+    (matchIds: string[]) =>
+      mutateActive((t) => {
+        const startedAt = { ...(t.startedAt ?? {}) };
+        const liveScores = { ...(t.liveScores ?? {}) };
+        for (const id of matchIds) {
+          delete startedAt[id];
+          delete liveScores[id];
+        }
+        return { ...t, startedAt, liveScores };
+      }),
+    [mutateActive],
+  );
+
+  const adjustScore = useCallback(
+    (matchId: string, side: 'home' | 'away', delta: number) =>
+      mutateActive((t) => {
+        const current: SetScore = t.liveScores?.[matchId] ?? { home: 0, away: 0 };
+        const updated: SetScore = { ...current, [side]: Math.max(0, current[side] + delta) };
+        return { ...t, liveScores: { ...(t.liveScores ?? {}), [matchId]: updated } };
+      }),
+    [mutateActive],
+  );
+
+  const finishMatch = useCallback(
+    (matchId: string) =>
+      mutateActive((t) => {
+        const score = t.liveScores?.[matchId] ?? { home: 0, away: 0 };
+        const results = { ...t.results, [matchId]: { matchId, sets: [score] } };
+        const liveScores = { ...(t.liveScores ?? {}) };
+        delete liveScores[matchId];
+        return { ...t, results, liveScores };
+      }),
+    [mutateActive],
+  );
+
+  const reopenMatch = useCallback(
+    (matchId: string) =>
+      mutateActive((t) => {
+        const score = t.results[matchId]?.sets[0] ?? { home: 0, away: 0 };
+        const results = { ...t.results };
+        delete results[matchId];
+        const startedAt = { ...(t.startedAt ?? {}), [matchId]: t.startedAt?.[matchId] ?? Date.now() };
+        const liveScores = { ...(t.liveScores ?? {}), [matchId]: score };
+        return { ...t, results, startedAt, liveScores };
+      }),
+    [mutateActive],
+  );
+
+  // ── Derived ────────────────────────────────────────────────────────────────
+  const active = useMemo(
+    () => library?.tournaments.find((t) => t.id === activeId) ?? null,
+    [library, activeId],
+  );
+  const scenario = useMemo(
+    () =>
+      active ? deriveScenario(active.scenarioId, active.tournamentDate, active.groupLabels) : undefined,
+    [active?.scenarioId, active?.tournamentDate, active?.groupLabels], // eslint-disable-line react-hooks/exhaustive-deps
+  );
+  const publishedId = library?.publishedId ?? null;
 
   return {
-    state,
     loaded,
-    scenario: state ? getScenario(state.scenarioId) : undefined,
+    library,
+    activeId,
+    active,
+    scenario,
+    publishedId,
+    phase: phaseOf(active, publishedId),
     actions: {
-      initTournament,
+      createTournament,
+      renameTournament,
+      duplicateTournament,
+      deleteTournament,
+      publishTournament,
+      unpublishTournament,
+      selectTournament,
+      backToOverview,
       updateTeam,
-      confirmSetup,
+      setGroupLabel,
+      setTournamentDate,
+      goLive,
+      endLive,
       setResult,
       clearResult,
-      reset,
+      resetResults,
       startSlot,
       clearSlotStart,
       adjustScore,
       finishMatch,
       reopenMatch,
     },
+  };
+}
+
+// ============================================================================
+//  Public hook — read-only view of the single published tournament.
+// ============================================================================
+export function usePublishedTournament() {
+  const [library, setLibrary] = useState<TournamentLibrary | null>(null);
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    storage.load().then((lib) => {
+      if (!alive) return;
+      setLibrary(lib);
+      setLoaded(true);
+    });
+    const unsub = storage.subscribe((lib) => setLibrary(lib));
+    return () => {
+      alive = false;
+      unsub();
+    };
+  }, []);
+
+  const tournament = useMemo(
+    () => library?.tournaments.find((t) => t.id === library.publishedId) ?? null,
+    [library],
+  );
+  const scenario = useMemo(
+    () =>
+      tournament
+        ? deriveScenario(tournament.scenarioId, tournament.tournamentDate, tournament.groupLabels)
+        : undefined,
+    [tournament?.scenarioId, tournament?.tournamentDate, tournament?.groupLabels], // eslint-disable-line react-hooks/exhaustive-deps
+  );
+
+  return {
+    loaded,
+    tournament,
+    scenario,
+    phase: phaseOf(tournament, library?.publishedId ?? null),
   };
 }

@@ -2,12 +2,14 @@ import { useState } from 'react';
 import type { MatchResult, Scenario, SetScore, SlotId, Team } from '../../types';
 import { teamName } from '../../lib/display';
 import { remainingSeconds, formatMMSS } from '../../lib/liveStatus';
-import { activeGroupMatches, nextStartableSlot } from '../../lib/activeGames';
+import { activeGroupMatches } from '../../lib/activeGames';
+import { slotTimeline, nextActionSlot, formatRemaining } from '../../lib/timeline';
 import { useTicker } from '../../hooks/useTicker';
 import { TrophyIcon } from '../icons';
 
 interface Props {
   scenario: Scenario;
+  tournamentDate?: string;
   teams: Record<SlotId, Team>;
   results: Record<string, MatchResult>;
   startedAt: Record<string, number>;
@@ -20,6 +22,7 @@ interface Props {
 
 export default function ActiveGamesAdmin({
   scenario,
+  tournamentDate,
   teams,
   results,
   startedAt,
@@ -36,16 +39,36 @@ export default function ActiveGamesAdmin({
 
   // ── No active game: offer to start the next slot ───────────────────────────
   if (!selected) {
-    const next = nextStartableSlot(scenario, startedAt, results);
+    const next = nextActionSlot(slotTimeline(scenario, tournamentDate, startedAt, results, now));
+    const due = next?.status === 'due';
+    const untilMs = next?.epoch != null ? next.epoch - now : null;
     return (
       <div>
         <h2 className="mb-6 text-3xl font-bold uppercase">Aktive Spiele</h2>
         {next ? (
-          <div className="rounded-3xl border border-ink/10 bg-white p-8 text-center">
+          <div
+            className={`rounded-3xl border bg-white p-8 text-center ${
+              due ? 'border-red-300 ring-1 ring-red-200' : 'border-ink/10'
+            }`}
+          >
             <p className="font-display text-sm font-semibold uppercase tracking-[0.2em] text-muted">
-              Nächster Slot
+              Nächster Slot · geplant {next.time}
             </p>
             <p className="mt-1 font-display text-4xl font-bold text-court">{next.time}</p>
+            {/* time-to / overdue badge */}
+            {untilMs != null && (
+              <p
+                className={`mt-3 inline-flex items-center gap-2 rounded-full px-4 py-1.5 font-display text-sm font-bold uppercase tracking-wide ${
+                  due ? 'bg-red-100 text-red-700' : 'bg-court/10 text-court'
+                }`}
+              >
+                {due ? (
+                  <>● Überfällig · seit {formatRemaining(-untilMs)}</>
+                ) : (
+                  <>Startet in {formatRemaining(untilMs)}</>
+                )}
+              </p>
+            )}
             <div className="mx-auto mt-6 grid max-w-2xl gap-3 sm:grid-cols-2">
               {next.matches.map((m) => (
                 <div key={m.id} className="rounded-xl bg-paper p-4 text-left">

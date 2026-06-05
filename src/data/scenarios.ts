@@ -247,3 +247,86 @@ export const SCENARIOS: Scenario[] = SCENARIO_SPECS.map(buildScenario);
 export function getScenario(id: number): Scenario | undefined {
   return SCENARIOS.find((s) => s.id === id);
 }
+
+/**
+ * Map entered tournament parameters (team count + how many teams reach the KO)
+ * to the matching tested scenario. Returns undefined for unsupported combos.
+ */
+export function findScenario(teamCount: number, qualifierCount: number): Scenario | undefined {
+  return SCENARIOS.find(
+    (s) => s.teamCount === teamCount && s.qualification.qualifierCount === qualifierCount,
+  );
+}
+
+/** Distinct team counts the tested scenarios support, largest first. */
+export const SUPPORTED_TEAM_COUNTS: number[] = Array.from(
+  new Set(SCENARIOS.map((s) => s.teamCount)),
+).sort((a, b) => b - a);
+
+/** The scenario's own first group-match time (its planning baseline). */
+function scenarioBaseStart(scenario: Scenario): number {
+  return scenario.groupSchedule.reduce(
+    (min, m) => Math.min(min, timeToMinutes(m.time)),
+    timeToMinutes(scenario.groupSchedule[0]?.time ?? START_TIME),
+  );
+}
+
+/** Minutes-of-day from a datetime-local string ("2026-07-05T10:00" → 600). */
+export function startMinutesOf(tournamentDate?: string): number | null {
+  if (!tournamentDate) return null;
+  const time = tournamentDate.split('T')[1];
+  if (!time) return null;
+  const [h, m] = time.split(':').map(Number);
+  if (Number.isNaN(h) || Number.isNaN(m)) return null;
+  return h * 60 + m;
+}
+
+/**
+ * Return a copy of the scenario whose schedule is shifted so the first group
+ * match lands on the start time chosen in `tournamentDate`. Match **ids stay
+ * untouched** (they embed the original time) so entered results survive the
+ * shift — only the displayed `time` fields and `endTime` move.
+ */
+export function shiftScenario(scenario: Scenario, tournamentDate?: string): Scenario {
+  const startMin = startMinutesOf(tournamentDate);
+  if (startMin == null) return scenario;
+  const offset = startMin - scenarioBaseStart(scenario);
+  if (offset === 0) return scenario;
+  const shift = (t: string) => minutesToTime(timeToMinutes(t) + offset);
+  return {
+    ...scenario,
+    groupSchedule: scenario.groupSchedule.map((m) => ({ ...m, time: shift(m.time) })),
+    koSchedule: scenario.koSchedule.map((m) => ({ ...m, time: shift(m.time) })),
+    endTime: shift(scenario.endTime),
+  };
+}
+
+/** Apply custom group labels to a scenario (empty/missing → keep default). */
+export function applyGroupLabels(
+  scenario: Scenario,
+  groupLabels?: Record<string, string>,
+): Scenario {
+  if (!groupLabels) return scenario;
+  const hasOverride = scenario.groups.some((g) => groupLabels[g.id]?.trim());
+  if (!hasOverride) return scenario;
+  return {
+    ...scenario,
+    groups: scenario.groups.map((g) =>
+      groupLabels[g.id]?.trim() ? { ...g, label: groupLabels[g.id].trim() } : g,
+    ),
+  };
+}
+
+/**
+ * The runtime scenario for a tournament: the tested base, shifted to its start
+ * time and with its custom group labels applied. Match ids stay untouched.
+ */
+export function deriveScenario(
+  scenarioId: number,
+  tournamentDate?: string,
+  groupLabels?: Record<string, string>,
+): Scenario | undefined {
+  const base = getScenario(scenarioId);
+  if (!base) return undefined;
+  return applyGroupLabels(shiftScenario(base, tournamentDate), groupLabels);
+}

@@ -2,19 +2,29 @@ import type { MatchResult, Scenario, SetScore, SlotId, Team } from '../../types'
 import { teamName } from '../../lib/display';
 import { remainingSeconds, formatMMSS } from '../../lib/liveStatus';
 import { activeGroupMatches } from '../../lib/activeGames';
+import { slotTimeline, nextActionSlot, formatRemaining } from '../../lib/timeline';
 import { useTicker } from '../../hooks/useTicker';
 
 interface Props {
   scenario: Scenario;
+  tournamentDate?: string;
   teams: Record<SlotId, Team>;
   results: Record<string, MatchResult>;
   startedAt: Record<string, number>;
   liveScores: Record<string, SetScore>;
 }
 
-export default function ActiveGamesView({ scenario, teams, results, startedAt, liveScores }: Props) {
+export default function ActiveGamesView({
+  scenario,
+  tournamentDate,
+  teams,
+  results,
+  startedAt,
+  liveScores,
+}: Props) {
   const now = useTicker();
   const active = activeGroupMatches(scenario, startedAt, results);
+  const next = nextActionSlot(slotTimeline(scenario, tournamentDate, startedAt, results, now));
 
   return (
     <section>
@@ -23,10 +33,7 @@ export default function ActiveGamesView({ scenario, teams, results, startedAt, l
       </h2>
 
       {active.length === 0 ? (
-        <div className="rounded-3xl border border-dashed border-paper/20 px-6 py-20 text-center">
-          <p className="text-xl font-semibold">Gerade kein Spiel aktiv</p>
-          <p className="mt-2 text-paper/60">Sobald ein Spiel startet, erscheint es hier live.</p>
-        </div>
+        <NextUp next={next} teams={teams} now={now} />
       ) : (
         <div className="grid gap-6 lg:grid-cols-2">
           {active.map((m) => {
@@ -67,6 +74,55 @@ export default function ActiveGamesView({ scenario, teams, results, startedAt, l
         </div>
       )}
     </section>
+  );
+}
+
+function NextUp({
+  next,
+  teams,
+  now,
+}: {
+  next: ReturnType<typeof nextActionSlot>;
+  teams: Record<SlotId, Team>;
+  now: number;
+}) {
+  if (!next) {
+    return (
+      <div className="rounded-3xl border border-dashed border-paper/20 px-6 py-20 text-center">
+        <p className="text-xl font-semibold">Gerade kein Spiel aktiv</p>
+        <p className="mt-2 text-paper/60">Sobald ein Spiel startet, erscheint es hier live.</p>
+      </div>
+    );
+  }
+  const due = next.status === 'due';
+  const untilMs = next.epoch != null ? next.epoch - now : null;
+  return (
+    <div className="rounded-3xl border border-dashed border-paper/25 px-6 py-12 text-center">
+      <p className="font-display text-sm font-semibold uppercase tracking-[0.25em] text-paper/60">
+        Als Nächstes · {next.time}
+      </p>
+      {untilMs != null && (
+        <p
+          className={`mt-3 inline-flex items-center gap-2 rounded-full px-5 py-2 font-display text-lg font-bold uppercase tracking-wide tabular-nums ${
+            due ? 'bg-red-500 text-white' : 'bg-accent text-accent-ink'
+          }`}
+        >
+          {due ? <>Gleich · überfällig seit {formatRemaining(-untilMs)}</> : <>in {formatRemaining(untilMs)}</>}
+        </p>
+      )}
+      <div className="mx-auto mt-8 grid max-w-2xl gap-3 sm:grid-cols-2">
+        {next.matches.map((m) => (
+          <div key={m.id} className="rounded-2xl bg-court-soft p-5 text-left">
+            <p className="font-display text-xs uppercase tracking-wide text-paper/50">
+              Platz {m.court}
+            </p>
+            <p className="mt-1 text-lg font-bold">{teamName(teams, m.home)}</p>
+            <p className="text-paper/50">vs</p>
+            <p className="text-lg font-bold">{teamName(teams, m.away)}</p>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 

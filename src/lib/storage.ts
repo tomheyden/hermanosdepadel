@@ -2,43 +2,77 @@
 //  Storage abstraction.
 //
 //  Components and hooks NEVER touch the persistence layer directly — they go
-//  through the `storage` object. Two implementations exist behind the same
-//  interface:
+//  through the `storage` object. It persists the whole TournamentLibrary (many
+//  tournaments, at most one published) as a single JSONB blob. Two backends:
 //    • SupabaseBackend     — shared Postgres row + realtime (when configured)
 //    • LocalStorageBackend — per-browser fallback (no backend needed)
-//  The right one is chosen at the bottom based on whether Supabase is set up.
 // ============================================================================
 
-import type { TournamentState } from '../types';
+import type { Tournament, TournamentLibrary, TournamentState } from '../types';
 import { isSupabaseConfigured, supabase } from './supabase';
 
 const STORAGE_KEY = 'hdp:tournament:v1';
-/** Single active tournament → one fixed row. */
+/** Single library blob → one fixed row. */
 const ROW_ID = 1;
 
+const EMPTY: TournamentLibrary = { tournaments: [], publishedId: null };
+
+/** Short unique id for a tournament. */
+export function newTournamentId(): string {
+  return `t_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
+}
+
+/**
+ * Coerce whatever sits in storage into a TournamentLibrary. Handles three cases:
+ *  - already a library  → returned as-is
+ *  - the old single-tournament blob (has `scenarioId`) → wrapped into a library
+ *  - null / unknown      → an empty library
+ */
+function migrate(raw: unknown): TournamentLibrary {
+  if (!raw || typeof raw !== 'object') return EMPTY;
+  if (Array.isArray((raw as TournamentLibrary).tournaments)) {
+    return raw as TournamentLibrary;
+  }
+  const legacy = raw as Partial<TournamentState>;
+  if (typeof legacy.scenarioId === 'number') {
+    const id = newTournamentId();
+    const tournament: Tournament = {
+      ...(legacy as TournamentState),
+      id,
+      title: 'Turnier',
+    };
+    // Keep it public if it was already live/published in the old model.
+    const wasPublic = Boolean(
+      (legacy as { publishedAt?: number }).publishedAt || legacy.tournamentStartedAt,
+    );
+    return { tournaments: [tournament], publishedId: wasPublic ? id : null };
+  }
+  return EMPTY;
+}
+
 export interface Storage {
-  load(): Promise<TournamentState | null>;
-  save(state: TournamentState): Promise<void>;
+  load(): Promise<TournamentLibrary>;
+  save(library: TournamentLibrary): Promise<void>;
   clear(): Promise<void>;
   /** Subscribe to external changes (other tabs / other devices). Returns unsubscribe. */
-  subscribe(listener: (state: TournamentState | null) => void): () => void;
+  subscribe(listener: (library: TournamentLibrary) => void): () => void;
 }
 
 // ── localStorage (fallback / offline) ────────────────────────────────────────
 class LocalStorageBackend implements Storage {
-  async load(): Promise<TournamentState | null> {
+  async load(): Promise<TournamentLibrary> {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
-      return raw ? (JSON.parse(raw) as TournamentState) : null;
+      return migrate(raw ? JSON.parse(raw) : null);
     } catch (err) {
       console.error('[storage] failed to load', err);
-      return null;
+      return EMPTY;
     }
   }
 
-  async save(state: TournamentState): Promise<void> {
+  async save(library: TournamentLibrary): Promise<void> {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(library));
     } catch (err) {
       console.error('[storage] failed to save', err);
     }
@@ -48,11 +82,11 @@ class LocalStorageBackend implements Storage {
     localStorage.removeItem(STORAGE_KEY);
   }
 
-  subscribe(listener: (state: TournamentState | null) => void): () => void {
+  subscribe(listener: (library: TournamentLibrary) => void): () => void {
     // `storage` events fire in OTHER tabs of the same browser only.
     const handler = (e: StorageEvent) => {
       if (e.key !== STORAGE_KEY) return;
-      listener(e.newValue ? (JSON.parse(e.newValue) as TournamentState) : null);
+      listener(migrate(e.newValue ? JSON.parse(e.newValue) : null));
     };
     window.addEventListener('storage', handler);
     return () => window.removeEventListener('storage', handler);
@@ -61,7 +95,7 @@ class LocalStorageBackend implements Storage {
 
 // ── Supabase (shared DB + realtime) ──────────────────────────────────────────
 class SupabaseBackend implements Storage {
-  async load(): Promise<TournamentState | null> {
+  async load(): Promise<TournamentLibrary> {
     const { data, error } = await supabase!
       .from('tournament')
       .select('state')
@@ -69,16 +103,16 @@ class SupabaseBackend implements Storage {
       .maybeSingle();
     if (error) {
       console.error('[storage] supabase load failed', error.message);
-      return null;
+      return EMPTY;
     }
-    return (data?.state as TournamentState) ?? null;
+    return migrate(data?.state ?? null);
   }
 
-  async save(state: TournamentState): Promise<void> {
+  async save(library: TournamentLibrary): Promise<void> {
     // Requires an authenticated admin session (enforced by RLS).
     const { error } = await supabase!
       .from('tournament')
-      .upsert({ id: ROW_ID, state, updated_at: new Date().toISOString() });
+      .upsert({ id: ROW_ID, state: library, updated_at: new Date().toISOString() });
     if (error) console.error('[storage] supabase save failed', error.message);
   }
 
@@ -87,15 +121,15 @@ class SupabaseBackend implements Storage {
     if (error) console.error('[storage] supabase clear failed', error.message);
   }
 
-  subscribe(listener: (state: TournamentState | null) => void): () => void {
+  subscribe(listener: (library: TournamentLibrary) => void): () => void {
     const channel = supabase!
       .channel('tournament-changes')
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'tournament', filter: `id=eq.${ROW_ID}` },
         (payload) => {
-          const row = payload.new as { state?: TournamentState } | null;
-          listener(row?.state ?? null);
+          const row = payload.new as { state?: unknown } | null;
+          listener(migrate(row?.state ?? null));
         },
       )
       .subscribe();

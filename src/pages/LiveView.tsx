@@ -1,12 +1,13 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { useTournament } from '../hooks/useTournament';
+import { usePublishedTournament } from '../hooks/useTournament';
 import { computeAllStandings } from '../lib/standings';
 import { computeQualification } from '../lib/qualification';
 import { resolveBracket, computeFinalStandings } from '../lib/bracket';
 import { teamName } from '../lib/display';
 import type { MatchResult, Scenario, SetScore, SlotId, Team } from '../types';
 import { TrophyIcon } from '../components/icons';
+import { Countdown, useCountdown, formatTournamentDate } from '../components/Countdown';
 import Bracket from '../components/live/Bracket';
 import AllMatches from '../components/live/AllMatches';
 import ActiveGamesView from '../components/live/ActiveGamesView';
@@ -25,47 +26,82 @@ const TABS: Array<{ id: Tab; label: string }> = [
  * storage abstraction, so edits made on /live in another tab push here live.
  */
 export default function LiveView() {
-  const { state, loaded, scenario } = useTournament();
+  const { tournament, loaded, scenario, phase } = usePublishedTournament();
+  const countdown = useCountdown(tournament?.tournamentDate);
 
   if (!loaded) {
     return <Centered>Lädt…</Centered>;
   }
-  if (!state || !state.setupComplete || !scenario) {
-    return (
-      <Centered>
-        <img src="/logo.svg" alt="" aria-hidden="true" className="mb-6 h-20 w-20" />
-        <h1 className="font-display text-4xl font-bold uppercase">Hermanos de Padel</h1>
-        <p className="mt-3 text-paper/70">Das Turnier startet in Kürze.</p>
-        <div className="mt-8 flex items-center gap-4 text-sm">
-          <Link to="/" className="text-paper/70 hover:text-paper">
-            Zur Startseite
-          </Link>
-          <span className="text-paper/30">·</span>
-          <Link to="/admin" className="text-accent hover:underline">
-            Zum Admin-Bereich
-          </Link>
-        </div>
-      </Centered>
-    );
+
+  // Nothing published, or still a draft → a teaser with the countdown.
+  if (!tournament || !scenario || phase === 'setup' || phase === 'ready') {
+    return <WaitingScreen target={tournament?.tournamentDate} countdown={countdown} />;
   }
 
+  // Published (preview) or live → the full board. `phase` switches the chrome.
   return (
     <Beamer
+      phase={phase}
+      tournamentDate={tournament.tournamentDate}
       state={{
-        teams: state.teams,
-        results: state.results,
-        startedAt: state.startedAt ?? {},
-        liveScores: state.liveScores ?? {},
+        teams: tournament.teams,
+        results: tournament.results,
+        startedAt: tournament.startedAt ?? {},
+        liveScores: tournament.liveScores ?? {},
       }}
       scenario={scenario}
     />
   );
 }
 
+function WaitingScreen({
+  target,
+  countdown,
+}: {
+  target?: string;
+  countdown: ReturnType<typeof useCountdown>;
+}) {
+  const dateLabel = formatTournamentDate(target);
+  return (
+    <Centered>
+      <img src="/logo.svg" alt="" aria-hidden="true" className="mb-6 h-20 w-20" />
+      <h1 className="font-display text-4xl font-bold uppercase md:text-5xl">Hermanos de Padel</h1>
+
+      {countdown ? (
+        <>
+          <p className="mt-4 font-display text-sm uppercase tracking-[0.25em] text-accent">
+            {countdown.done ? 'Es geht gleich los' : 'Noch'}
+          </p>
+          <div className="mt-6">
+            <Countdown parts={countdown} />
+          </div>
+          {dateLabel && <p className="mt-6 text-paper/70">{dateLabel}</p>}
+        </>
+      ) : (
+        <p className="mt-3 text-paper/70">Das Turnier startet in Kürze.</p>
+      )}
+
+      <div className="mt-8 flex items-center gap-4 text-sm">
+        <Link to="/" className="text-paper/70 hover:text-paper">
+          Zur Startseite
+        </Link>
+        <span className="text-paper/30">·</span>
+        <Link to="/admin" className="text-accent hover:underline">
+          Zum Admin-Bereich
+        </Link>
+      </div>
+    </Centered>
+  );
+}
+
 function Beamer({
+  phase,
+  tournamentDate,
   state,
   scenario,
 }: {
+  phase: 'published' | 'live';
+  tournamentDate?: string;
   state: {
     teams: Record<SlotId, Team>;
     results: Record<string, MatchResult>;
@@ -75,7 +111,11 @@ function Beamer({
   scenario: Scenario;
 }) {
   const { teams, results, startedAt, liveScores } = state;
-  const [tab, setTab] = useState<Tab>('active');
+  const preview = phase === 'published';
+  const visibleTabs = preview ? TABS.filter((t) => t.id !== 'active') : TABS;
+  const [tab, setTab] = useState<Tab>(preview ? 'schedule' : 'active');
+  const countdown = useCountdown(tournamentDate);
+  const activeTab = visibleTabs.some((t) => t.id === tab) ? tab : visibleTabs[0].id;
 
   const qualification = computeQualification(scenario, teams, results);
   const bracket = resolveBracket(
@@ -93,9 +133,12 @@ function Beamer({
             <img src="/logo.svg" alt="" aria-hidden="true" className="h-11 w-11" />
             <div>
               <p className="font-display text-xl font-bold uppercase tracking-wide md:text-2xl">
-                Hermanos de Padel · Live
+                Hermanos de Padel · {preview ? 'Vorschau' : 'Live'}
               </p>
-              <p className="text-sm text-paper/70">{scenario.name}</p>
+              <p className="text-sm text-paper/70">
+                {scenario.name}
+                {preview && formatTournamentDate(tournamentDate) ? ` · Start ${tournamentDate?.split('T')[1]} Uhr` : ''}
+              </p>
             </div>
           </div>
           <div className="flex items-center gap-1.5">
@@ -116,12 +159,12 @@ function Beamer({
 
         {/* tabs */}
         <nav className="mx-auto flex max-w-[100rem] gap-1 overflow-x-auto px-6 pb-2 md:px-8">
-          {TABS.map((t) => (
+          {visibleTabs.map((t) => (
             <button
               key={t.id}
               onClick={() => setTab(t.id)}
               className={`whitespace-nowrap rounded-full px-4 py-1.5 font-display text-sm font-semibold uppercase tracking-wide transition-colors cursor-pointer ${
-                tab === t.id ? 'bg-accent text-accent-ink' : 'text-paper/75 hover:bg-paper/10 hover:text-paper'
+                activeTab === t.id ? 'bg-accent text-accent-ink' : 'text-paper/75 hover:bg-paper/10 hover:text-paper'
               }`}
             >
               {t.label}
@@ -131,11 +174,26 @@ function Beamer({
       </header>
 
       <div className="mx-auto max-w-[100rem] space-y-10 px-6 py-8 md:px-8 md:py-10">
+        {preview && countdown && (
+          <section className="rounded-3xl bg-court-soft px-6 py-10 text-center">
+            <p className="font-display text-sm font-semibold uppercase tracking-[0.25em] text-accent">
+              {countdown.done ? 'Es geht gleich los' : 'Erstes Spiel in'}
+            </p>
+            <div className="mt-5 flex justify-center">
+              <Countdown parts={countdown} />
+            </div>
+            {formatTournamentDate(tournamentDate) && (
+              <p className="mt-6 text-paper/70">{formatTournamentDate(tournamentDate)}</p>
+            )}
+          </section>
+        )}
+
         {places && <Podium places={places} teams={teams} />}
 
-        {tab === 'active' && (
+        {activeTab === 'active' && (
           <ActiveGamesView
             scenario={scenario}
+            tournamentDate={tournamentDate}
             teams={teams}
             results={results}
             startedAt={startedAt}
@@ -143,7 +201,7 @@ function Beamer({
           />
         )}
 
-        {tab === 'schedule' && (
+        {activeTab === 'schedule' && (
           <AllMatches
             scenario={scenario}
             teams={teams}
@@ -154,9 +212,9 @@ function Beamer({
           />
         )}
 
-        {tab === 'groups' && <GroupsGrid scenario={scenario} teams={teams} results={results} />}
+        {activeTab === 'groups' && <GroupsGrid scenario={scenario} teams={teams} results={results} />}
 
-        {tab === 'bracket' && (
+        {activeTab === 'bracket' && (
           <section>
             <h2 className="mb-6 font-display text-3xl font-bold uppercase tracking-wide text-accent">
               KO-Baum
