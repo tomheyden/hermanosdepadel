@@ -4,6 +4,7 @@ import { resolveBracket } from '../../lib/bracket';
 import { computeQualification } from '../../lib/qualification';
 import { evaluateMatch } from '../../lib/match';
 import { activeKoMatches, nextKoSlot, koFinished } from '../../lib/koLive';
+import { setWinsOf, koWinner, isGoldenPoint, pointLabel } from '../../lib/tennis';
 import { remainingSeconds, formatMMSS } from '../../lib/liveStatus';
 import { teamName, formatLabel } from '../../lib/display';
 import { useTicker } from '../../hooks/useTicker';
@@ -17,11 +18,11 @@ interface Props {
   startedAt: Record<string, number>;
   liveScores: Record<string, SetScore>;
   liveSets: Record<string, SetScore[]>;
-  // best-of-sets KO (played set by set)
+  liveGame: Record<string, SetScore>;
+  // tennis-scored KO (points → games → sets)
   onStartKo: (id: string) => void;
-  onAdjustKo: (id: string, setIndex: number, side: 'home' | 'away', delta: number) => void;
-  onEndKo: (id: string) => void;
-  onUndoKo: (id: string) => void;
+  onKoPoint: (id: string, side: 'home' | 'away') => void;
+  onKoPointBack: (id: string, side: 'home' | 'away') => void;
   onFinishKo: (id: string) => void;
   onClearKo: (id: string) => void;
   // single-game KO (bonus, americano) — reuses the group flow
@@ -115,9 +116,9 @@ function NextCard({
       <p className="font-display text-sm font-semibold uppercase tracking-[0.2em] text-muted">
         Nächste Runde · {first.def.time} · {isSets ? formatLabel(first.def.format) : 'Americano'}
       </p>
-      <div className="mx-auto mt-4 grid max-w-2xl gap-3 sm:grid-cols-2">
+      <div className="mt-4 flex flex-wrap justify-center gap-3">
         {matches.map((m) => (
-          <div key={m.def.id} className="rounded-2xl bg-paper p-4 text-left">
+          <div key={m.def.id} className="w-full max-w-xs rounded-2xl bg-paper p-4 text-center">
             <p className="font-display text-xs uppercase tracking-wide text-muted">
               {m.def.label} · Platz {m.def.court}
             </p>
@@ -142,9 +143,9 @@ function KoMatchCard({
   startedAt,
   liveScores,
   liveSets,
-  onAdjustKo,
-  onEndKo,
-  onUndoKo,
+  liveGame,
+  onKoPoint,
+  onKoPointBack,
   onFinishKo,
   onClearKo,
   onAdjustScore,
@@ -188,26 +189,25 @@ function KoMatchCard({
           <GameStepper name={home} value={single.home} big onMinus={() => onAdjustScore(id, 'home', -1)} onPlus={() => onAdjustScore(id, 'home', 1)} />
           <GameStepper name={away} value={single.away} big onMinus={() => onAdjustScore(id, 'away', -1)} onPlus={() => onAdjustScore(id, 'away', 1)} />
         </div>
-        <Buttons
-          canFinish={outcome.winner !== null}
-          onFinish={() => onFinishMatch(id)}
-          onCancel={() => onClearStart([id])}
-        />
+        <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
+          <button onClick={() => onFinishMatch(id)} disabled={outcome.winner === null} className="btn-accent disabled:cursor-not-allowed disabled:opacity-40">
+            ✓ Spiel beenden
+          </button>
+          <button onClick={() => onClearStart([id])} className="rounded-full px-4 py-2 font-display text-sm font-semibold uppercase tracking-wide text-muted hover:text-red-600 cursor-pointer">
+            Abbrechen
+          </button>
+        </div>
       </div>
     );
   }
 
-  // ── Best-of-3 sets, played set by set ──────────────────────────────────────
+  // ── Tennis-scored KO (points → games → sets) ───────────────────────────────
   const sets = liveSets[id] ?? [{ home: 0, away: 0 }];
-  const activeIdx = sets.length - 1;
-  const activeSet = sets[activeIdx] ?? { home: 0, away: 0 };
-  const outcome = evaluateMatch({ matchId: id, sets: sets.filter((s) => s.home || s.away) }, format);
-  const decided = outcome.winner !== null;
-  const activeHasWinner = activeSet.home !== activeSet.away;
-  const canEndSet = !decided && activeHasWinner && sets.length < 3;
-  const canUndo = sets.length > 1 && activeSet.home === 0 && activeSet.away === 0;
-  const tieBreakIndex = format.tieBreakTarget ? 2 : undefined;
-  const isTieBreakActive = activeIdx === 2 && !!format.tieBreakTarget;
+  const game = liveGame[id] ?? { home: 0, away: 0 };
+  const wins = setWinsOf(sets);
+  const winner = koWinner(sets);
+  const decided = winner !== null;
+  const golden = isGoldenPoint(game);
 
   return (
     <div className="rounded-3xl border border-ink/10 bg-white p-6 md:p-8">
@@ -216,52 +216,36 @@ function KoMatchCard({
         home={home}
         away={away}
         sets={sets}
-        homeSetsWon={outcome.homeSetsWon}
-        awaySetsWon={outcome.awaySetsWon}
-        activeIndex={activeIdx}
-        tieBreakIndex={tieBreakIndex}
-        winner={outcome.winner}
+        homeSetsWon={wins.home}
+        awaySetsWon={wins.away}
+        activeIndex={sets.length - 1}
+        gamePoints={decided ? undefined : { home: pointLabel(game.home), away: pointLabel(game.away) }}
+        goldenPoint={golden}
+        winner={winner}
         variant="light"
       />
 
-      <div className="mt-5 rounded-2xl bg-paper p-3">
-        <p className="mb-2 text-center font-display text-xs font-semibold uppercase tracking-wide text-muted">
-          {isTieBreakActive ? `Tie-Break bis ${format.tieBreakTarget}` : `Satz ${activeIdx + 1}`}
-          {decided ? ' · Entscheidung gefallen' : ' läuft'}
-        </p>
-        <div className="grid grid-cols-2 gap-3">
-          <GameStepper name={home} value={activeSet.home} onMinus={() => onAdjustKo(id, activeIdx, 'home', -1)} onPlus={() => onAdjustKo(id, activeIdx, 'home', 1)} />
-          <GameStepper name={away} value={activeSet.away} onMinus={() => onAdjustKo(id, activeIdx, 'away', -1)} onPlus={() => onAdjustKo(id, activeIdx, 'away', 1)} />
+      {!decided && (
+        <div className="mt-5 rounded-2xl bg-paper p-3">
+          {golden && (
+            <p className="mb-2 rounded-lg bg-accent/20 px-3 py-1.5 text-center font-display text-xs font-bold uppercase tracking-wide text-accent-ink">
+              Golden Point · der nächste Punkt entscheidet das Spiel
+            </p>
+          )}
+          <div className="grid grid-cols-2 gap-3">
+            <PointButton name={home} onPlus={() => onKoPoint(id, 'home')} onBack={() => onKoPointBack(id, 'home')} />
+            <PointButton name={away} onPlus={() => onKoPoint(id, 'away')} onBack={() => onKoPointBack(id, 'away')} />
+          </div>
         </div>
-      </div>
+      )}
 
       <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
-        {decided ? (
+        {decided && (
           <button onClick={() => onFinishKo(id)} className="btn-accent">
             ✓ Spiel beenden
           </button>
-        ) : (
-          <button
-            onClick={() => onEndKo(id)}
-            disabled={!canEndSet}
-            className="btn-accent disabled:cursor-not-allowed disabled:opacity-40"
-            title={canEndSet ? '' : 'Satz braucht einen Sieger'}
-          >
-            ✓ Satz beenden →
-          </button>
         )}
-        {canUndo && (
-          <button
-            onClick={() => onUndoKo(id)}
-            className="rounded-full border border-ink/15 px-4 py-2 font-display text-sm font-semibold uppercase tracking-wide text-muted transition-colors hover:border-ink hover:text-ink cursor-pointer"
-          >
-            Satz zurück
-          </button>
-        )}
-        <button
-          onClick={() => onClearKo(id)}
-          className="rounded-full px-4 py-2 font-display text-sm font-semibold uppercase tracking-wide text-muted transition-colors hover:text-red-600 cursor-pointer"
-        >
+        <button onClick={() => onClearKo(id)} className="rounded-full px-4 py-2 font-display text-sm font-semibold uppercase tracking-wide text-muted hover:text-red-600 cursor-pointer">
           Abbrechen
         </button>
       </div>
@@ -269,30 +253,21 @@ function KoMatchCard({
   );
 }
 
-function Buttons({
-  canFinish,
-  onFinish,
-  onCancel,
-}: {
-  canFinish: boolean;
-  onFinish: () => void;
-  onCancel: () => void;
-}) {
+function PointButton({ name, onPlus, onBack }: { name: string; onPlus: () => void; onBack: () => void }) {
   return (
-    <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
+    <div className="rounded-xl bg-white p-3 text-center">
+      <p className="mb-2 truncate text-sm font-semibold">{name}</p>
       <button
-        onClick={onFinish}
-        disabled={!canFinish}
-        className="btn-accent disabled:cursor-not-allowed disabled:opacity-40"
-        title={canFinish ? '' : 'Es muss ein Sieger feststehen'}
+        onClick={onPlus}
+        className="w-full rounded-full bg-accent py-3 font-display text-lg font-bold uppercase tracking-wide text-accent-ink transition-transform hover:-translate-y-0.5 active:scale-95 cursor-pointer"
       >
-        ✓ Spiel beenden
+        + Punkt
       </button>
       <button
-        onClick={onCancel}
-        className="rounded-full px-4 py-2 font-display text-sm font-semibold uppercase tracking-wide text-muted transition-colors hover:text-red-600 cursor-pointer"
+        onClick={onBack}
+        className="mt-1.5 font-display text-xs font-semibold uppercase tracking-wide text-muted hover:text-ink cursor-pointer"
       >
-        Abbrechen
+        − zurück
       </button>
     </div>
   );

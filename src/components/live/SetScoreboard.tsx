@@ -10,6 +10,10 @@ interface Props {
   activeIndex?: number;
   /** index of the set that is the match tie-break (labelled "TB"). */
   tieBreakIndex?: number;
+  /** current game's tennis points (e.g. "15"/"40") — adds a highlighted "Punkt" column. */
+  gamePoints?: { home: string; away: string };
+  /** highlight the point column gold at 40:40. */
+  goldenPoint?: boolean;
   winner?: 'home' | 'away' | null;
   variant?: 'light' | 'dark';
 }
@@ -27,6 +31,8 @@ export default function SetScoreboard({
   awaySetsWon,
   activeIndex,
   tieBreakIndex,
+  gamePoints,
+  goldenPoint,
   winner,
   variant = 'dark',
 }: Props) {
@@ -50,7 +56,27 @@ export default function SetScoreboard({
           cellActive: 'bg-paper text-ink ring-2 ring-court',
         };
 
-  const Row = ({ name, games, setsWon, win }: { name: string; games: number[]; setsWon: number; win: boolean }) => (
+  const pointCell = goldenPoint
+    ? variant === 'dark'
+      ? 'bg-accent text-accent-ink'
+      : 'bg-accent text-accent-ink'
+    : variant === 'dark'
+      ? 'bg-black/40 text-accent ring-1 ring-accent/50'
+      : 'bg-court text-accent ring-1 ring-court';
+
+  const Row = ({
+    name,
+    games,
+    setsWon,
+    point,
+    win,
+  }: {
+    name: string;
+    games: number[];
+    setsWon: number;
+    point?: string;
+    win: boolean;
+  }) => (
     <div className="flex items-center gap-3">
       <span className={`min-w-0 flex-1 truncate text-lg ${win ? c.nameWin : c.name}`}>{name}</span>
       <span className={`w-6 text-center font-display text-2xl font-bold tabular-nums ${c.big}`}>
@@ -68,6 +94,11 @@ export default function SetScoreboard({
           </span>
         ))}
       </div>
+      {point != null && (
+        <span className={`flex h-9 w-12 items-center justify-center rounded-lg font-display text-lg font-bold tabular-nums ${pointCell}`}>
+          {point}
+        </span>
+      )}
     </div>
   );
 
@@ -89,9 +120,14 @@ export default function SetScoreboard({
             </span>
           ))}
         </div>
+        {gamePoints && (
+          <span className={`w-12 text-center font-display text-[0.6rem] uppercase tracking-wide ${c.head}`}>
+            {goldenPoint ? 'GP' : 'Punkt'}
+          </span>
+        )}
       </div>
-      <Row name={home} games={sets.map((s) => s.home)} setsWon={homeSetsWon} win={winner === 'home'} />
-      <Row name={away} games={sets.map((s) => s.away)} setsWon={awaySetsWon} win={winner === 'away'} />
+      <Row name={home} games={sets.map((s) => s.home)} setsWon={homeSetsWon} point={gamePoints?.home} win={winner === 'home'} />
+      <Row name={away} games={sets.map((s) => s.away)} setsWon={awaySetsWon} point={gamePoints?.away} win={winner === 'away'} />
     </div>
   );
 }

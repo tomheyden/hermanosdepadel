@@ -162,14 +162,14 @@ export default function Live() {
                   startedAt={active.startedAt ?? {}}
                   liveScores={active.liveScores ?? {}}
                   liveSets={active.liveSets ?? {}}
+                  liveGame={active.liveGame ?? {}}
                   onStartSlot={actions.startSlot}
                   onClearStart={actions.clearSlotStart}
                   onAdjust={actions.adjustScore}
                   onFinish={actions.finishMatch}
                   onStartKo={actions.startKoMatch}
-                  onAdjustKo={actions.adjustKoGame}
-                  onEndKo={actions.endKoSet}
-                  onUndoKo={actions.undoKoSet}
+                  onKoPoint={actions.koPoint}
+                  onKoPointBack={actions.koPointBack}
                   onFinishKo={actions.finishKoMatch}
                   onClearKo={actions.clearKoMatch}
                 />

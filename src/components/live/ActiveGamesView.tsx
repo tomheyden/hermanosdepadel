@@ -5,8 +5,8 @@ import { activeGroupMatches } from '../../lib/activeGames';
 import { slotTimeline, nextActionSlot, formatRemaining } from '../../lib/timeline';
 import { resolveBracket, type ResolvedKoMatch } from '../../lib/bracket';
 import { computeQualification } from '../../lib/qualification';
-import { activeKoMatches, nextKoMatch } from '../../lib/koLive';
-import { evaluateMatch } from '../../lib/match';
+import { activeKoMatches, nextKoSlot } from '../../lib/koLive';
+import { setWinsOf, koWinner, isGoldenPoint, pointLabel } from '../../lib/tennis';
 import { useTicker } from '../../hooks/useTicker';
 import SetScoreboard from './SetScoreboard';
 
@@ -18,6 +18,7 @@ interface Props {
   startedAt: Record<string, number>;
   liveScores: Record<string, SetScore>;
   liveSets: Record<string, SetScore[]>;
+  liveGame: Record<string, SetScore>;
 }
 
 export default function ActiveGamesView({
@@ -28,6 +29,7 @@ export default function ActiveGamesView({
   startedAt,
   liveScores,
   liveSets,
+  liveGame,
 }: Props) {
   const now = useTicker();
   const active = activeGroupMatches(scenario, startedAt, results);
@@ -42,7 +44,7 @@ export default function ActiveGamesView({
     qualification.complete ? qualification.eliminated : [],
   );
   const koActive = activeKoMatches(bracket, startedAt, results);
-  const koNext = nextKoMatch(bracket, startedAt, results);
+  const koNextSlot = nextKoSlot(bracket, startedAt, results);
 
   // Once the group phase is over, the KO flow owns this tab.
   if (active.length === 0 && qualification.complete) {
@@ -60,11 +62,12 @@ export default function ActiveGamesView({
                 teams={teams}
                 liveSets={liveSets[m.def.id]}
                 liveScore={liveScores[m.def.id]}
+                liveGame={liveGame[m.def.id]}
               />
             ))}
           </div>
         ) : (
-          <KoNext m={koNext} teams={teams} />
+          <KoNext matches={koNextSlot} teams={teams} />
         )}
       </section>
     );
@@ -154,9 +157,9 @@ function NextUp({
           {due ? <>Gleich · überfällig seit {formatRemaining(-untilMs)}</> : <>in {formatRemaining(untilMs)}</>}
         </p>
       )}
-      <div className="mx-auto mt-8 grid max-w-2xl gap-3 sm:grid-cols-2">
+      <div className="mt-8 flex flex-wrap justify-center gap-3">
         {next.matches.map((m) => (
-          <div key={m.id} className="rounded-2xl bg-court-soft p-5 text-left">
+          <div key={m.id} className="w-full max-w-xs rounded-2xl bg-court-soft p-5 text-center">
             <p className="font-display text-xs uppercase tracking-wide text-paper/50">
               Platz {m.court}
             </p>
@@ -175,21 +178,24 @@ function KoLiveCard({
   teams,
   liveSets,
   liveScore,
+  liveGame,
 }: {
   m: ResolvedKoMatch;
   teams: Record<SlotId, Team>;
   liveSets?: SetScore[];
   liveScore?: SetScore;
+  liveGame?: SetScore;
 }) {
   const format = m.def.format;
   const isSets = format.type === 'bestOfSets';
   const home = teamName(teams, m.homeTeam);
   const away = teamName(teams, m.awayTeam);
   const sets = liveSets ?? [{ home: 0, away: 0 }];
+  const game = liveGame ?? { home: 0, away: 0 };
   const single = liveScore ?? { home: 0, away: 0 };
-  const out = isSets
-    ? evaluateMatch({ matchId: m.def.id, sets: sets.filter((s) => s.home || s.away) }, format)
-    : evaluateMatch({ matchId: m.def.id, sets: [single] }, format);
+  const wins = setWinsOf(sets);
+  const winner = koWinner(sets);
+  const golden = isGoldenPoint(game);
 
   return (
     <div className="overflow-hidden rounded-3xl border border-accent bg-court-soft ko-champion-glow">
@@ -207,11 +213,12 @@ function KoLiveCard({
             home={home}
             away={away}
             sets={sets}
-            homeSetsWon={out.homeSetsWon}
-            awaySetsWon={out.awaySetsWon}
+            homeSetsWon={wins.home}
+            awaySetsWon={wins.away}
             activeIndex={sets.length - 1}
-            tieBreakIndex={format.tieBreakTarget ? 2 : undefined}
-            winner={out.winner}
+            gamePoints={winner ? undefined : { home: pointLabel(game.home), away: pointLabel(game.away) }}
+            goldenPoint={golden}
+            winner={winner}
             variant="dark"
           />
         </div>
@@ -225,8 +232,8 @@ function KoLiveCard({
   );
 }
 
-function KoNext({ m, teams }: { m: ResolvedKoMatch | null; teams: Record<SlotId, Team> }) {
-  if (!m) {
+function KoNext({ matches, teams }: { matches: ResolvedKoMatch[]; teams: Record<SlotId, Team> }) {
+  if (matches.length === 0) {
     return (
       <div className="rounded-3xl border border-dashed border-paper/20 px-6 py-20 text-center">
         <p className="text-xl font-semibold">Gerade kein Spiel aktiv</p>
@@ -235,15 +242,22 @@ function KoNext({ m, teams }: { m: ResolvedKoMatch | null; teams: Record<SlotId,
     );
   }
   return (
-    <div className="rounded-3xl border border-dashed border-paper/25 px-6 py-12 text-center">
+    <div className="rounded-3xl border border-dashed border-paper/25 px-6 py-10 text-center">
       <p className="font-display text-sm font-semibold uppercase tracking-[0.25em] text-paper/60">
-        Als Nächstes · {m.def.label} · {m.def.time}
+        Als Nächstes · {matches[0].def.time}
       </p>
-      <p className="mt-4 text-2xl font-bold">
-        {teamName(teams, m.homeTeam)} <span className="text-paper/50">vs</span>{' '}
-        {teamName(teams, m.awayTeam)}
-      </p>
-      <p className="mt-1 text-paper/55">Platz {m.def.court}</p>
+      <div className="mt-5 flex flex-wrap justify-center gap-4">
+        {matches.map((m) => (
+          <div key={m.def.id} className="w-full max-w-xs rounded-2xl bg-court-soft px-5 py-4 text-center">
+            <p className="font-display text-xs font-semibold uppercase tracking-wide text-paper/50">
+              {m.def.label} · Platz {m.def.court}
+            </p>
+            <p className="mt-1 text-lg font-bold">{teamName(teams, m.homeTeam)}</p>
+            <p className="text-paper/50">vs</p>
+            <p className="text-lg font-bold">{teamName(teams, m.awayTeam)}</p>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

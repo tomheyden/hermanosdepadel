@@ -16,14 +16,14 @@ interface Props {
   startedAt: Record<string, number>;
   liveScores: Record<string, SetScore>;
   liveSets: Record<string, SetScore[]>;
+  liveGame: Record<string, SetScore>;
   onStartSlot: (ids: string[]) => void;
   onClearStart: (ids: string[]) => void;
   onAdjust: (id: string, side: 'home' | 'away', delta: number) => void;
   onFinish: (id: string) => void;
   onStartKo: (id: string) => void;
-  onAdjustKo: (id: string, setIndex: number, side: 'home' | 'away', delta: number) => void;
-  onEndKo: (id: string) => void;
-  onUndoKo: (id: string) => void;
+  onKoPoint: (id: string, side: 'home' | 'away') => void;
+  onKoPointBack: (id: string, side: 'home' | 'away') => void;
   onFinishKo: (id: string) => void;
   onClearKo: (id: string) => void;
 }
@@ -59,10 +59,10 @@ export default function ActiveGamesAdmin(props: Props) {
           startedAt={startedAt}
           liveScores={liveScores}
           liveSets={props.liveSets}
+          liveGame={props.liveGame}
           onStartKo={props.onStartKo}
-          onAdjustKo={props.onAdjustKo}
-          onEndKo={props.onEndKo}
-          onUndoKo={props.onUndoKo}
+          onKoPoint={props.onKoPoint}
+          onKoPointBack={props.onKoPointBack}
           onFinishKo={props.onFinishKo}
           onClearKo={props.onClearKo}
           onStartSlot={onStartSlot}

@@ -51,6 +51,7 @@ export default function LiveView() {
         startedAt: tournament.startedAt ?? {},
         liveScores: tournament.liveScores ?? {},
         liveSets: tournament.liveSets ?? {},
+        liveGame: tournament.liveGame ?? {},
       }}
       scenario={scenario}
     />
@@ -111,10 +112,11 @@ function Beamer({
     startedAt: Record<string, number>;
     liveScores: Record<string, SetScore>;
     liveSets: Record<string, SetScore[]>;
+    liveGame: Record<string, SetScore>;
   };
   scenario: Scenario;
 }) {
-  const { teams, results, startedAt, liveScores, liveSets } = state;
+  const { teams, results, startedAt, liveScores, liveSets, liveGame } = state;
   const preview = phase === 'published';
   const visibleTabs = preview ? TABS.filter((t) => t.id !== 'active') : TABS;
   const [tab, setTab] = useState<Tab>(preview ? 'schedule' : 'active');
@@ -206,6 +208,7 @@ function Beamer({
             startedAt={startedAt}
             liveScores={liveScores}
             liveSets={liveSets}
+            liveGame={liveGame}
           />
         )}
 
@@ -301,10 +304,11 @@ function GroupsGrid({
                         )}
                       </td>
                       <td className="whitespace-nowrap py-3 pr-4 text-right text-sm text-paper/60">
-                        {s.won} S
+                        {s.pointsFor} Pkt
                       </td>
-                      <td className="py-3 pr-5 text-right font-display text-xl font-bold tabular-nums text-accent">
-                        {s.pointsFor}
+                      <td className="whitespace-nowrap py-3 pr-5 text-right font-display text-xl font-bold tabular-nums text-accent">
+                        {s.won}
+                        <span className="ml-0.5 text-sm font-semibold text-paper/60">S</span>
                       </td>
                     </tr>
                   );

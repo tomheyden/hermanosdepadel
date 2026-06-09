@@ -42,6 +42,9 @@ const BO3_TO_6: MatchFormat = {
   setTarget: 6,
   tieBreakTarget: 7,
 };
+// KO format: best-of-3 sets, each set best-of-3 games (first to 2 → no draw),
+// each game scored 15/30/40 with a Golden Point at 40:40. No match tie-break.
+const KO_BO3: MatchFormat = { type: 'bestOfSets', goldenPoint: true, sets: 3, setTarget: 2 };
 
 // ── Group helpers ────────────────────────────────────────────────────────────
 function makeGroups(sizes: number[]): GroupDef[] {
@@ -207,14 +210,14 @@ const SCENARIO_SPECS: ScenarioSpec[] = [
     // Final ends ~15:49 (after the "Finale der Herzen" pushes it to 15:19 + 30 min).
     endTime: '15:49',
     koSummary:
-      'Viertelfinale, Halbfinale & Finale: 2 Sätze bis 4, bei 1:1 Match-Tie-Break bis 7 (Golden Point) · max. 30 Min pro Spiel.',
+      'Viertelfinale, Halbfinale & Finale: Best-of-3 Sätze, je Satz best-of-3 Spiele; Zählung 15/30/40, bei 40:40 Golden Point · max. 30 Min pro Spiel.',
     // 30-minute slots for QF & SF: QF 13:25/13:58, SF 14:31, then the Finale der
-    // Herzen (15:04), Finale 15:19. Best-of-3 to 4 with a match tie-break at 1–1.
+    // Herzen (15:04), Finale 15:19. Tennis scoring (best-of-3 sets / best-of-3 games).
     buildKo: (groupEnd) => {
       const qfStart = addMinutes(groupEnd, GAP); // 13:22 + 3 = 13:25
       const sfStart = addMinutes(qfStart, 2 * (30 + GAP)); // two QF waves → 14:31
       const finalStart = addMinutes(sfStart, 30 + GAP); // 15:04 (before bonus shift)
-      return buildKo8(qfStart, 30, BO3_TO_4, sfStart, BO3_TO_4, finalStart, BO3_TO_4);
+      return buildKo8(qfStart, 30, KO_BO3, sfStart, KO_BO3, finalStart, KO_BO3);
     },
   },
 ];

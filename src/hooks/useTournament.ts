@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { newTournamentId, storage } from '../lib/storage';
 import { deriveScenario, getScenario } from '../data/scenarios';
+import { awardPoint } from '../lib/tennis';
 import type {
   GroupId,
   MatchResult,
@@ -137,6 +138,7 @@ export function useLibrary() {
         startedAt: {},
         liveScores: {},
         liveSets: {},
+        liveGame: {},
         tournamentStartedAt: undefined,
         createdAt: Date.now(),
       };
@@ -269,6 +271,7 @@ export function useLibrary() {
         startedAt: {},
         liveScores: {},
         liveSets: {},
+        liveGame: {},
         tournamentStartedAt: undefined,
       })),
     [mutateActive],
@@ -325,50 +328,41 @@ export function useLibrary() {
     [mutateActive],
   );
 
-  // ── Live KO (best-of-3 sets, played set by set) ────────────────────────────
+  // ── Live KO (tennis scoring: points → games → sets) ────────────────────────
   const startKoMatch = useCallback(
     (matchId: string) =>
       mutateActive((t) => ({
         ...t,
         startedAt: { ...(t.startedAt ?? {}), [matchId]: Date.now() },
-        // start with just the FIRST set; the next set is added on "Satz beenden".
         liveSets: { ...(t.liveSets ?? {}), [matchId]: [{ home: 0, away: 0 }] },
+        liveGame: { ...(t.liveGame ?? {}), [matchId]: { home: 0, away: 0 } },
       })),
     [mutateActive],
   );
 
-  const adjustKoGame = useCallback(
-    (matchId: string, setIndex: number, side: 'home' | 'away', delta: number) =>
+  /** Score a point for a side; cascades game → set automatically (15/30/40/GP). */
+  const koPoint = useCallback(
+    (matchId: string, side: 'home' | 'away') =>
       mutateActive((t) => {
-        const sets = (t.liveSets?.[matchId] ?? []).map((s) => ({ ...s }));
-        if (!sets[setIndex]) return t;
-        sets[setIndex][side] = Math.max(0, sets[setIndex][side] + delta);
-        return { ...t, liveSets: { ...(t.liveSets ?? {}), [matchId]: sets } };
+        const sets = t.liveSets?.[matchId] ?? [{ home: 0, away: 0 }];
+        const game = t.liveGame?.[matchId] ?? { home: 0, away: 0 };
+        const next = awardPoint(sets, game, side);
+        return {
+          ...t,
+          liveSets: { ...(t.liveSets ?? {}), [matchId]: next.sets },
+          liveGame: { ...(t.liveGame ?? {}), [matchId]: next.game },
+        };
       }),
     [mutateActive],
   );
 
-  /** Confirm the current set and open the next one (the 3rd is the tie-break). */
-  const endKoSet = useCallback(
-    (matchId: string) =>
+  /** Take a point back within the current game (for mis-taps). */
+  const koPointBack = useCallback(
+    (matchId: string, side: 'home' | 'away') =>
       mutateActive((t) => {
-        const sets = (t.liveSets?.[matchId] ?? []).map((s) => ({ ...s }));
-        if (sets.length >= 3) return t; // best-of-3: no 4th set
-        sets.push({ home: 0, away: 0 });
-        return { ...t, liveSets: { ...(t.liveSets ?? {}), [matchId]: sets } };
-      }),
-    [mutateActive],
-  );
-
-  /** Undo the last "Satz beenden" (drop the freshly opened, still-empty set). */
-  const undoKoSet = useCallback(
-    (matchId: string) =>
-      mutateActive((t) => {
-        const sets = (t.liveSets?.[matchId] ?? []).map((s) => ({ ...s }));
-        if (sets.length <= 1) return t;
-        const last = sets[sets.length - 1];
-        if (last.home === 0 && last.away === 0) sets.pop();
-        return { ...t, liveSets: { ...(t.liveSets ?? {}), [matchId]: sets } };
+        const game = { ...(t.liveGame?.[matchId] ?? { home: 0, away: 0 }) };
+        game[side] = Math.max(0, game[side] - 1);
+        return { ...t, liveGame: { ...(t.liveGame ?? {}), [matchId]: game } };
       }),
     [mutateActive],
   );
@@ -379,8 +373,10 @@ export function useLibrary() {
         const sets = (t.liveSets?.[matchId] ?? []).filter((s) => s.home || s.away);
         const results = { ...t.results, [matchId]: { matchId, sets } };
         const liveSets = { ...(t.liveSets ?? {}) };
+        const liveGame = { ...(t.liveGame ?? {}) };
         delete liveSets[matchId];
-        return { ...t, results, liveSets };
+        delete liveGame[matchId];
+        return { ...t, results, liveSets, liveGame };
       }),
     [mutateActive],
   );
@@ -390,9 +386,11 @@ export function useLibrary() {
       mutateActive((t) => {
         const startedAt = { ...(t.startedAt ?? {}) };
         const liveSets = { ...(t.liveSets ?? {}) };
+        const liveGame = { ...(t.liveGame ?? {}) };
         delete startedAt[matchId];
         delete liveSets[matchId];
-        return { ...t, startedAt, liveSets };
+        delete liveGame[matchId];
+        return { ...t, startedAt, liveSets, liveGame };
       }),
     [mutateActive],
   );
@@ -458,9 +456,8 @@ export function useLibrary() {
       finishMatch,
       reopenMatch,
       startKoMatch,
-      adjustKoGame,
-      endKoSet,
-      undoKoSet,
+      koPoint,
+      koPointBack,
       finishKoMatch,
       clearKoMatch,
     },

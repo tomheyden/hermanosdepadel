@@ -154,8 +154,10 @@ export interface TournamentState {
   /** in-progress live score (per matchId) while a single-game match is active,
    *  before it is finalised into `results`. Group/americano + bonus matches. */
   liveScores?: Record<string, SetScore>;
-  /** in-progress live SETS for an active multi-set KO match (best-of-3). */
+  /** in-progress live SETS (games per set) for an active KO match (best-of-3). */
   liveSets?: Record<string, SetScore[]>;
+  /** in-progress tennis points of the CURRENT game (0..3 → 0/15/30/40; 3-3 = Golden Point). */
+  liveGame?: Record<string, SetScore>;
   createdAt: number;
   /** false until the basics step (scenario + date) is confirmed. */
   setupComplete: boolean;

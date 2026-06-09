@@ -190,7 +190,8 @@ function Card({
 
   const homeLabel = m.homeTeam ? teamName(teams, m.homeTeam) : describe(m.def.home);
   const awayLabel = m.awayTeam ? teamName(teams, m.awayTeam) : describe(m.def.away);
-  const score = (side: 'home' | 'away') => sets.map((s) => s[side]).join(' ');
+  const tieBreakIndex =
+    m.def.format.type === 'bestOfSets' && m.def.format.tieBreakTarget && sets.length >= 3 ? 2 : -1;
 
   const editable = Boolean(onEdit);
   const lines = (
@@ -202,9 +203,9 @@ function Card({
           </span>
         </div>
       )}
-      <TeamLine label={homeLabel} seed={seedOf(m.def.home)} score={score('home')} won={out.winner === 'home'} />
+      <TeamLine label={homeLabel} seed={seedOf(m.def.home)} games={sets.map((s) => s.home)} tieBreakIndex={tieBreakIndex} won={out.winner === 'home'} />
       <div className="mx-3 h-px bg-paper/10" />
-      <TeamLine label={awayLabel} seed={seedOf(m.def.away)} score={score('away')} won={out.winner === 'away'} />
+      <TeamLine label={awayLabel} seed={seedOf(m.def.away)} games={sets.map((s) => s.away)} tieBreakIndex={tieBreakIndex} won={out.winner === 'away'} />
     </>
   );
 
@@ -299,12 +300,14 @@ function Card({
 function TeamLine({
   label,
   seed,
-  score,
+  games,
+  tieBreakIndex,
   won,
 }: {
   label: string;
   seed: number | null;
-  score: string;
+  games: number[];
+  tieBreakIndex: number;
   won: boolean;
 }) {
   return (
@@ -317,9 +320,23 @@ function TeamLine({
       <span className={`min-w-0 flex-1 [overflow-wrap:anywhere] ${won ? 'font-bold text-paper' : 'text-paper/75'}`}>
         {label}
       </span>
-      <span className={`font-display text-lg font-bold tabular-nums ${won ? 'text-accent' : 'text-paper/50'}`}>
-        {score}
-      </span>
+      {/* one box per set; the tie-break box is marked with a ring */}
+      <div className="flex flex-shrink-0 gap-1">
+        {games.map((g, i) => (
+          <span
+            key={i}
+            className={`flex h-7 w-7 items-center justify-center rounded-md font-display text-base font-bold tabular-nums ${
+              i === tieBreakIndex
+                ? 'bg-black/20 text-accent ring-1 ring-accent/60'
+                : won
+                  ? 'bg-accent/20 text-accent'
+                  : 'bg-black/20 text-paper/55'
+            }`}
+          >
+            {g}
+          </span>
+        ))}
+      </div>
     </div>
   );
 }
