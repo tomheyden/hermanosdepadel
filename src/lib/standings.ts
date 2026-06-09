@@ -3,12 +3,12 @@
 //
 //  Ranking criteria — confirmed with the organiser, applied in this order:
 //    1. Gewonnene Spiele (match wins)         → matchPoints (2 per win, 1 draw)
-//    2. Punktedifferenz gesamt (pointsFor − pointsAgainst, over ALL matches)
-//    3. Erzielte Punkte gesamt (pointsFor)
+//    2. Erzielte Punkte gesamt (pointsFor, over ALL matches)
+//    3. Punktedifferenz gesamt (pointsFor − pointsAgainst) — only at equal points
 //    4. Stable fallback (team id) so the order is deterministic.
 //
-//  Note: per the organiser there is NO head-to-head/mini-table step — ties are
-//  broken purely by total difference, then total points scored.
+//  Note: per the organiser there is NO head-to-head/mini-table step. "Bei gleicher
+//  Punktzahl ist die Punktdifferenz relevant" → points scored come BEFORE diff.
 // ============================================================================
 
 import type { GroupDef, MatchResult, Scenario, SlotId, Standing, Team } from '../types';
@@ -83,8 +83,8 @@ export function computeGroupStandings(
 /** The ranking comparator (returns <0 if a ranks ABOVE b). */
 export function compareStandings(a: Standing, b: Standing): number {
   if (b.matchPoints !== a.matchPoints) return b.matchPoints - a.matchPoints; // 1. wins
-  if (b.diff !== a.diff) return b.diff - a.diff; // 2. total difference
-  if (b.pointsFor !== a.pointsFor) return b.pointsFor - a.pointsFor; // 3. total points
+  if (b.pointsFor !== a.pointsFor) return b.pointsFor - a.pointsFor; // 2. points scored
+  if (b.diff !== a.diff) return b.diff - a.diff; // 3. point difference (only at equal points)
   return a.teamId.localeCompare(b.teamId); // 4. deterministic fallback
 }
 

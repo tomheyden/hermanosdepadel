@@ -15,7 +15,7 @@ export type GroupId = string; // e.g. "G1"
 /** Abstract team position inside a scenario, before real names are assigned. */
 export type SlotId = string; // e.g. "G1.1"
 
-export type KoStage = 'QF' | 'SF' | 'F' | 'P3';
+export type KoStage = 'QF' | 'SF' | 'F' | 'P3' | 'BONUS';
 
 // ── Match format ─────────────────────────────────────────────────────────────
 /**
@@ -43,7 +43,9 @@ export interface GroupDef {
 export interface GroupMatchDef {
   id: string; // stable unique id, e.g. "G-1110-P1"
   kind: 'group';
-  time: string; // "11:10"
+  time: string; // effective clock time, "11:10" (after start-shift + overrides)
+  /** original, unshifted scenario time — the stable key for time overrides. */
+  baseTime?: string;
   court: CourtId;
   group: GroupId;
   home: SlotId;
@@ -55,7 +57,8 @@ export interface GroupMatchDef {
 export type SlotRef =
   | { type: 'seed'; seed: number } // 1-based seed from qualification ranking
   | { type: 'winner'; matchId: string } // winner of an earlier KO match
-  | { type: 'loser'; matchId: string }; // loser of an earlier KO match (→ P3)
+  | { type: 'loser'; matchId: string } // loser of an earlier KO match (→ P3)
+  | { type: 'eliminated'; rank: number }; // Nth-best group-phase non-qualifier (bonus round)
 
 export interface KoMatchDef {
   id: string;
@@ -63,6 +66,8 @@ export interface KoMatchDef {
   stage: KoStage;
   label: string; // "Halbfinale 1", "Finale", "Spiel um Platz 3"
   time: string;
+  /** original, unshifted scenario time — the stable key for time overrides. */
+  baseTime?: string;
   court: CourtId;
   home: SlotRef;
   away: SlotRef;
@@ -95,6 +100,8 @@ export interface Scenario {
   teamCount: number;
   groups: GroupDef[];
   groupMatchDurationMin: number;
+  /** timer length (minutes) for a live KO match (QF/SF/Final). */
+  koMatchDurationMin: number;
   qualification: QualificationConfig;
   groupSchedule: GroupMatchDef[];
   koSchedule: KoMatchDef[];
@@ -137,12 +144,18 @@ export interface TournamentState {
   /** optional custom group labels, keyed by GroupId. Falls back to the scenario
    *  default ("Gruppe 1") when absent/empty. */
   groupLabels?: Record<GroupId, string>;
+  /** optional per-slot time overrides, keyed by the slot's BASE time ("11:10")
+   *  → effective clock time ("11:28"). Lets the admin pull games forward / reflow
+   *  the remaining plan when things run early or late. */
+  slotTimes?: Record<string, string>;
   results: Record<string, MatchResult>; // keyed by matchId — FINAL results only
   /** epoch ms when a match was started (timer). Both courts of a slot share it. */
   startedAt?: Record<string, number>;
-  /** in-progress live score (per matchId) while a match is active, before it is
-   *  finalised into `results`. Keeps standings/KO logic off live scores. */
+  /** in-progress live score (per matchId) while a single-game match is active,
+   *  before it is finalised into `results`. Group/americano + bonus matches. */
   liveScores?: Record<string, SetScore>;
+  /** in-progress live SETS for an active multi-set KO match (best-of-3). */
+  liveSets?: Record<string, SetScore[]>;
   createdAt: number;
   /** false until the basics step (scenario + date) is confirmed. */
   setupComplete: boolean;

@@ -1,7 +1,7 @@
-import type { KoStage, MatchResult, Scenario, SlotId, SlotRef, Team } from '../../types';
-import type { ResolvedKoMatch } from '../../lib/bracket';
+import type { KoStage, MatchResult, Scenario, SetScore, SlotId, SlotRef, Team } from '../../types';
+import { computeBonusStandings, type ResolvedKoMatch } from '../../lib/bracket';
 import { evaluateMatch } from '../../lib/match';
-import { seedLabel } from '../../lib/qualification';
+import { eliminatedLabel, seedLabel } from '../../lib/qualification';
 import { teamName } from '../../lib/display';
 import { TrophyIcon } from '../icons';
 
@@ -17,62 +17,93 @@ const STAGE_TITLES: Record<KoStage, string> = {
   SF: 'Halbfinale',
   F: 'Finale',
   P3: 'Spiel um Platz 3',
+  BONUS: 'Finale der Herzen',
 };
+
+// bracket column: fixed width + horizontal scroll on mobile, fills the row on lg.
+const COL =
+  'flex w-[78vw] max-w-[18rem] shrink-0 flex-col sm:w-72 lg:w-auto lg:max-w-none lg:flex-1';
 
 interface Props {
   scenario: Scenario;
   teams: Record<SlotId, Team>;
   results: Record<string, MatchResult>;
   bracket: ResolvedKoMatch[];
+  /** best→worst non-qualifier ranking; enables the bonus round labels + worst team. */
+  eliminated?: SlotId[];
+  /** live state, so the tree shows running KO matches (scores + highlight). */
+  startedAt?: Record<string, number>;
+  liveScores?: Record<string, SetScore>;
+  liveSets?: Record<string, SetScore[]>;
   /** Provide to enable editing (Admin). Omit for the read-only Turnier view. */
   onEdit?: (matchId: string) => void;
 }
 
-export default function Bracket({ scenario, teams, results, bracket, onEdit }: Props) {
+export default function Bracket({
+  scenario,
+  teams,
+  results,
+  bracket,
+  eliminated = [],
+  startedAt = {},
+  liveScores = {},
+  liveSets = {},
+  onEdit,
+}: Props) {
   const byStage = (s: KoStage) => bracket.filter((m) => m.def.stage === s);
   const qf = byStage('QF');
   const sf = byStage('SF');
   const final = byStage('F')[0];
   const p3 = byStage('P3')[0];
+  const bonus = byStage('BONUS');
 
-  const rounds = [qf.length ? qf : null, sf, [final]].filter(Boolean) as ResolvedKoMatch[][];
+  // non-final rounds (each a vertical stack of matches that pair into the next)
+  const treeRounds: ResolvedKoMatch[][] = qf.length ? [qf, sf] : [sf];
 
   const describe = (ref: SlotRef): string => {
     if (ref.type === 'seed') return seedLabel(scenario, ref.seed);
+    if (ref.type === 'eliminated') return eliminatedLabel(ref.rank, eliminated.length || 4);
     const src = scenario.koSchedule.find((m) => m.id === ref.matchId);
     return `${ref.type === 'winner' ? 'Sieger' : 'Verlierer'} ${src?.label ?? ''}`.trim();
   };
 
-  const ctx = { teams, results, describe, onEdit };
+  const ctx = { teams, results, describe, onEdit, startedAt, liveScores, liveSets };
+  const worstTeamId = computeBonusStandings(bracket, eliminated)?.worstTeamId ?? null;
 
   return (
     <div>
-      {/* tournament tree — final column holds ONLY the final (centred) so the
-          connector lines from each round land on the next match's centre. */}
-      <div className="flex flex-col gap-10 lg:flex-row lg:items-stretch lg:gap-12">
-        {rounds.map((round, ri) => {
-          const isFinalCol = ri === rounds.length - 1;
-          return (
-            <div key={ri} className="flex flex-1 flex-col">
-              <RoundHeader title={isFinalCol ? 'Finale' : STAGE_TITLES[round[0].def.stage]} />
-              {isFinalCol ? (
-                <div className="flex flex-1 flex-col justify-center">
-                  <Card variant="final" m={final} {...ctx} />
-                </div>
-              ) : (
-                <div className="flex flex-1 flex-col justify-around gap-8">
-                  {chunkPairs(round).map((pair, pi) => (
-                    <div key={pi} className="ko-pair has-next flex flex-col justify-around gap-8">
-                      {pair.map((m) => (
-                        <Card key={m.def.id} variant="match" m={m} {...ctx} />
-                      ))}
-                    </div>
-                  ))}
-                </div>
-              )}
+      {/* tournament tree — every match sits in an equal-height flex cell so the
+          connector lines always meet the cards on their centres. All columns
+          stretch to the same height (items-stretch), so pair midpoints line up
+          exactly with the next round's match centre. On mobile the whole tree
+          scrolls horizontally; on lg it fills the width (flex-1 columns). */}
+      <div className="overflow-x-auto pb-2">
+        <div className="flex items-stretch gap-12">
+          {treeRounds.map((round, ri) => (
+            <div key={ri} className={COL}>
+              <RoundHeader title={STAGE_TITLES[round[0].def.stage]} />
+              <div className="flex flex-1 flex-col">
+                {round.map((m, i) => (
+                  <div
+                    key={m.def.id}
+                    className={`ko-cell flex flex-1 flex-col justify-center py-3 ${
+                      i % 2 === 0 ? 'ko-top' : 'ko-bottom'
+                    }`}
+                  >
+                    <Card variant="match" m={m} {...ctx} />
+                  </div>
+                ))}
+              </div>
             </div>
-          );
-        })}
+          ))}
+          {/* final column — the card centred so the SF pair midpoint lands on it */}
+          <div className={COL}>
+            <RoundHeader title="Finale" />
+            <div className="flex flex-1 flex-col justify-center">
+              <Card variant="final" m={final} {...ctx} />
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* 3rd-place match sits apart from the tree (it's fed by the SF losers). */}
@@ -83,14 +114,31 @@ export default function Bracket({ scenario, teams, results, bracket, onEdit }: P
           </div>
         </div>
       )}
+
+      {/* Bonus round — the 4 group-phase non-qualifiers; last is the worst team. */}
+      {bonus.length > 0 && (
+        <div className="mt-10 border-t border-paper/10 pt-8">
+          <RoundHeader title="Finale der Herzen · um den Pokal & das Worst Team" />
+          <div className="grid gap-6 md:grid-cols-2 lg:max-w-3xl">
+            {bonus.map((m) => (
+              <Card key={m.def.id} variant="match" m={m} {...ctx} />
+            ))}
+          </div>
+          {worstTeamId && (
+            <div className="mt-6 flex items-center gap-4 rounded-2xl bg-paper/5 px-5 py-4 lg:max-w-3xl">
+              <TrophyIcon className="h-8 w-8 shrink-0 text-paper/60" />
+              <div>
+                <p className="font-display text-xs font-bold uppercase tracking-[0.2em] text-paper/55">
+                  Worst Team of the Tournament
+                </p>
+                <p className="font-display text-2xl font-bold">{teamName(teams, worstTeamId)}</p>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
-}
-
-function chunkPairs(matches: ResolvedKoMatch[]): ResolvedKoMatch[][] {
-  const out: ResolvedKoMatch[][] = [];
-  for (let i = 0; i < matches.length; i += 2) out.push(matches.slice(i, i + 2));
-  return out;
 }
 
 function RoundHeader({ title }: { title: string }) {
@@ -108,6 +156,9 @@ interface CardCtx {
   teams: Record<SlotId, Team>;
   results: Record<string, MatchResult>;
   describe: (ref: SlotRef) => string;
+  startedAt?: Record<string, number>;
+  liveScores?: Record<string, SetScore>;
+  liveSets?: Record<string, SetScore[]>;
   onEdit?: (matchId: string) => void;
 }
 
@@ -117,19 +168,40 @@ function Card({
   teams,
   results,
   describe,
+  startedAt = {},
+  liveScores = {},
+  liveSets = {},
   onEdit,
 }: CardCtx & { variant: 'match' | 'final' | 'p3'; m: ResolvedKoMatch }) {
-  const out = evaluateMatch(results[m.def.id], m.def.format);
+  const id = m.def.id;
   const ready = Boolean(m.homeTeam && m.awayTeam);
-  const hasResult = Boolean(results[m.def.id]);
+  const hasResult = Boolean(results[id]);
+  const live = !hasResult && Boolean(startedAt[id]) && ready;
+
+  // effective sets: final result, else the in-progress live score (sets or single)
+  const liveArr =
+    m.def.format.type === 'bestOfSets'
+      ? liveSets[id]
+      : liveScores[id]
+        ? [liveScores[id]]
+        : undefined;
+  const sets = hasResult ? results[id].sets : live ? (liveArr ?? []) : [];
+  const out = evaluateMatch({ matchId: id, sets: sets.filter((s) => s.home || s.away) }, m.def.format);
+
   const homeLabel = m.homeTeam ? teamName(teams, m.homeTeam) : describe(m.def.home);
   const awayLabel = m.awayTeam ? teamName(teams, m.awayTeam) : describe(m.def.away);
-  const score = (side: 'home' | 'away') =>
-    results[m.def.id]?.sets.map((s) => s[side]).join(' ') ?? '';
+  const score = (side: 'home' | 'away') => sets.map((s) => s[side]).join(' ');
 
   const editable = Boolean(onEdit);
   const lines = (
     <>
+      {live && (
+        <div className="mb-1 flex justify-center">
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-accent px-2.5 py-0.5 font-display text-[0.65rem] font-bold uppercase tracking-wide text-accent-ink">
+            <span className="h-1.5 w-1.5 rounded-full bg-accent-ink" /> Live
+          </span>
+        </div>
+      )}
       <TeamLine label={homeLabel} seed={seedOf(m.def.home)} score={score('home')} won={out.winner === 'home'} />
       <div className="mx-3 h-px bg-paper/10" />
       <TeamLine label={awayLabel} seed={seedOf(m.def.away)} score={score('away')} won={out.winner === 'away'} />
@@ -139,7 +211,7 @@ function Card({
   // ── Finale (climax card) ────────────────────────────────────────────────
   if (variant === 'final') {
     return (
-      <div className={`rounded-2xl bg-court-soft p-1 ${out.complete ? 'ko-champion-glow' : 'border border-accent/40'}`}>
+      <div className={`rounded-2xl bg-court-soft p-1 ${out.complete || live ? 'ko-champion-glow' : 'border border-accent/40'}`}>
         <div className="rounded-xl bg-court/60 px-2 py-3">
           <div className="mb-2 flex items-center justify-center gap-2">
             <TrophyIcon className="h-5 w-5 text-accent" />
@@ -169,7 +241,7 @@ function Card({
   // ── 3rd-place card ──────────────────────────────────────────────────────
   if (variant === 'p3') {
     return (
-      <div className="rounded-2xl border border-paper/10 bg-court-soft/40">
+      <div className={`rounded-2xl bg-court-soft/40 ${live ? 'border border-accent ko-champion-glow' : 'border border-paper/10'}`}>
         <div className="px-4 pt-3 text-center font-display text-xs font-semibold uppercase tracking-[0.18em] text-paper/55">
           Spiel um Platz 3 · {m.def.time}
         </div>
@@ -194,7 +266,11 @@ function Card({
 
   // ── Regular match (QF/SF) ───────────────────────────────────────────────
   return (
-    <div className="ko-match rounded-2xl border border-paper/15 bg-court-soft/70 backdrop-blur-sm">
+    <div
+      className={`ko-match rounded-2xl bg-court-soft/70 backdrop-blur-sm ${
+        live ? 'border border-accent ko-champion-glow' : 'border border-paper/15'
+      }`}
+    >
       <div className="flex items-center justify-between px-4 pt-3 text-xs">
         <span className="font-display uppercase tracking-wide text-paper/60">{m.def.label}</span>
         <span className="font-display tracking-wide text-paper/45">{m.def.time} · P{m.def.court}</span>
@@ -238,7 +314,9 @@ function TeamLine({
           {seed}
         </span>
       )}
-      <span className={`min-w-0 flex-1 truncate ${won ? 'font-bold text-paper' : 'text-paper/75'}`}>{label}</span>
+      <span className={`min-w-0 flex-1 [overflow-wrap:anywhere] ${won ? 'font-bold text-paper' : 'text-paper/75'}`}>
+        {label}
+      </span>
       <span className={`font-display text-lg font-bold tabular-nums ${won ? 'text-accent' : 'text-paper/50'}`}>
         {score}
       </span>

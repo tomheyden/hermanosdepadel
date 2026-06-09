@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import type { MatchResult, Scenario, SlotId, SlotRef, Team } from '../../types';
-import { computeQualification, seedLabel } from '../../lib/qualification';
+import type { MatchResult, Scenario, SetScore, SlotId, SlotRef, Team } from '../../types';
+import { computeQualification, eliminatedLabel, seedLabel } from '../../lib/qualification';
 import { resolveBracket, computeFinalStandings } from '../../lib/bracket';
 import { teamName } from '../../lib/display';
 import { TrophyIcon } from '../icons';
@@ -11,19 +11,33 @@ interface Props {
   scenario: Scenario;
   teams: Record<SlotId, Team>;
   results: Record<string, MatchResult>;
+  startedAt?: Record<string, number>;
+  liveScores?: Record<string, SetScore>;
+  liveSets?: Record<string, SetScore[]>;
   onSave: (r: MatchResult) => void;
   onClear: (matchId: string) => void;
 }
 
-export default function BracketView({ scenario, teams, results, onSave, onClear }: Props) {
+export default function BracketView({
+  scenario,
+  teams,
+  results,
+  startedAt = {},
+  liveScores = {},
+  liveSets = {},
+  onSave,
+  onClear,
+}: Props) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const qualification = computeQualification(scenario, teams, results);
   // Only fill the KO with real teams once the group phase is decided; until
   // then the slots show "Gruppensieger 1" etc.
+  const eliminated = qualification.complete ? qualification.eliminated : [];
   const bracket = resolveBracket(
     scenario,
     qualification.complete ? qualification.seeds : [],
     results,
+    eliminated,
   );
   const places = computeFinalStandings(bracket);
   const champion = places?.find((p) => p.place === 1);
@@ -31,6 +45,7 @@ export default function BracketView({ scenario, teams, results, onSave, onClear 
   const editing = editingId ? bracket.find((m) => m.def.id === editingId) : null;
   const describe = (ref: SlotRef): string => {
     if (ref.type === 'seed') return seedLabel(scenario, ref.seed);
+    if (ref.type === 'eliminated') return eliminatedLabel(ref.rank, eliminated.length || 4);
     const src = scenario.koSchedule.find((m) => m.id === ref.matchId);
     return `${ref.type === 'winner' ? 'Sieger' : 'Verlierer'} ${src?.label ?? ''}`.trim();
   };
@@ -69,6 +84,10 @@ export default function BracketView({ scenario, teams, results, onSave, onClear 
             teams={teams}
             results={results}
             bracket={bracket}
+            eliminated={eliminated}
+            startedAt={startedAt}
+            liveScores={liveScores}
+            liveSets={liveSets}
             onEdit={setEditingId}
           />
         </div>

@@ -136,6 +136,7 @@ export function useLibrary() {
         results: {},
         startedAt: {},
         liveScores: {},
+        liveSets: {},
         tournamentStartedAt: undefined,
         createdAt: Date.now(),
       };
@@ -208,6 +209,31 @@ export function useLibrary() {
     [mutateActive],
   );
 
+  /** Override a single slot's time (keyed by its base time). Empty → back to plan. */
+  const setSlotTime = useCallback(
+    (baseTime: string, time: string) =>
+      mutateActive((t) => {
+        const slotTimes = { ...(t.slotTimes ?? {}) };
+        if (time.trim()) slotTimes[baseTime] = time;
+        else delete slotTimes[baseTime];
+        return { ...t, slotTimes };
+      }),
+    [mutateActive],
+  );
+
+  /** Merge a batch of slot-time overrides (e.g. "reflow remaining from now"). */
+  const reflowTimes = useCallback(
+    (patch: Record<string, string>) =>
+      mutateActive((t) => ({ ...t, slotTimes: { ...(t.slotTimes ?? {}), ...patch } })),
+    [mutateActive],
+  );
+
+  /** Drop all time overrides — back to the planned schedule. */
+  const resetSlotTimes = useCallback(
+    () => mutateActive((t) => ({ ...t, slotTimes: {} })),
+    [mutateActive],
+  );
+
   const goLive = useCallback(
     () => mutateActive((t) => ({ ...t, tournamentStartedAt: Date.now() })),
     [mutateActive],
@@ -242,6 +268,7 @@ export function useLibrary() {
         results: {},
         startedAt: {},
         liveScores: {},
+        liveSets: {},
         tournamentStartedAt: undefined,
       })),
     [mutateActive],
@@ -298,6 +325,78 @@ export function useLibrary() {
     [mutateActive],
   );
 
+  // ── Live KO (best-of-3 sets, played set by set) ────────────────────────────
+  const startKoMatch = useCallback(
+    (matchId: string) =>
+      mutateActive((t) => ({
+        ...t,
+        startedAt: { ...(t.startedAt ?? {}), [matchId]: Date.now() },
+        // start with just the FIRST set; the next set is added on "Satz beenden".
+        liveSets: { ...(t.liveSets ?? {}), [matchId]: [{ home: 0, away: 0 }] },
+      })),
+    [mutateActive],
+  );
+
+  const adjustKoGame = useCallback(
+    (matchId: string, setIndex: number, side: 'home' | 'away', delta: number) =>
+      mutateActive((t) => {
+        const sets = (t.liveSets?.[matchId] ?? []).map((s) => ({ ...s }));
+        if (!sets[setIndex]) return t;
+        sets[setIndex][side] = Math.max(0, sets[setIndex][side] + delta);
+        return { ...t, liveSets: { ...(t.liveSets ?? {}), [matchId]: sets } };
+      }),
+    [mutateActive],
+  );
+
+  /** Confirm the current set and open the next one (the 3rd is the tie-break). */
+  const endKoSet = useCallback(
+    (matchId: string) =>
+      mutateActive((t) => {
+        const sets = (t.liveSets?.[matchId] ?? []).map((s) => ({ ...s }));
+        if (sets.length >= 3) return t; // best-of-3: no 4th set
+        sets.push({ home: 0, away: 0 });
+        return { ...t, liveSets: { ...(t.liveSets ?? {}), [matchId]: sets } };
+      }),
+    [mutateActive],
+  );
+
+  /** Undo the last "Satz beenden" (drop the freshly opened, still-empty set). */
+  const undoKoSet = useCallback(
+    (matchId: string) =>
+      mutateActive((t) => {
+        const sets = (t.liveSets?.[matchId] ?? []).map((s) => ({ ...s }));
+        if (sets.length <= 1) return t;
+        const last = sets[sets.length - 1];
+        if (last.home === 0 && last.away === 0) sets.pop();
+        return { ...t, liveSets: { ...(t.liveSets ?? {}), [matchId]: sets } };
+      }),
+    [mutateActive],
+  );
+
+  const finishKoMatch = useCallback(
+    (matchId: string) =>
+      mutateActive((t) => {
+        const sets = (t.liveSets?.[matchId] ?? []).filter((s) => s.home || s.away);
+        const results = { ...t.results, [matchId]: { matchId, sets } };
+        const liveSets = { ...(t.liveSets ?? {}) };
+        delete liveSets[matchId];
+        return { ...t, results, liveSets };
+      }),
+    [mutateActive],
+  );
+
+  const clearKoMatch = useCallback(
+    (matchId: string) =>
+      mutateActive((t) => {
+        const startedAt = { ...(t.startedAt ?? {}) };
+        const liveSets = { ...(t.liveSets ?? {}) };
+        delete startedAt[matchId];
+        delete liveSets[matchId];
+        return { ...t, startedAt, liveSets };
+      }),
+    [mutateActive],
+  );
+
   const reopenMatch = useCallback(
     (matchId: string) =>
       mutateActive((t) => {
@@ -318,8 +417,10 @@ export function useLibrary() {
   );
   const scenario = useMemo(
     () =>
-      active ? deriveScenario(active.scenarioId, active.tournamentDate, active.groupLabels) : undefined,
-    [active?.scenarioId, active?.tournamentDate, active?.groupLabels], // eslint-disable-line react-hooks/exhaustive-deps
+      active
+        ? deriveScenario(active.scenarioId, active.tournamentDate, active.groupLabels, active.slotTimes)
+        : undefined,
+    [active?.scenarioId, active?.tournamentDate, active?.groupLabels, active?.slotTimes], // eslint-disable-line react-hooks/exhaustive-deps
   );
   const publishedId = library?.publishedId ?? null;
 
@@ -343,6 +444,9 @@ export function useLibrary() {
       updateTeam,
       setGroupLabel,
       setTournamentDate,
+      setSlotTime,
+      reflowTimes,
+      resetSlotTimes,
       goLive,
       endLive,
       setResult,
@@ -353,6 +457,12 @@ export function useLibrary() {
       adjustScore,
       finishMatch,
       reopenMatch,
+      startKoMatch,
+      adjustKoGame,
+      endKoSet,
+      undoKoSet,
+      finishKoMatch,
+      clearKoMatch,
     },
   };
 }
@@ -385,9 +495,14 @@ export function usePublishedTournament() {
   const scenario = useMemo(
     () =>
       tournament
-        ? deriveScenario(tournament.scenarioId, tournament.tournamentDate, tournament.groupLabels)
+        ? deriveScenario(
+            tournament.scenarioId,
+            tournament.tournamentDate,
+            tournament.groupLabels,
+            tournament.slotTimes,
+          )
         : undefined,
-    [tournament?.scenarioId, tournament?.tournamentDate, tournament?.groupLabels], // eslint-disable-line react-hooks/exhaustive-deps
+    [tournament?.scenarioId, tournament?.tournamentDate, tournament?.groupLabels, tournament?.slotTimes], // eslint-disable-line react-hooks/exhaustive-deps
   );
 
   return {

@@ -59,6 +59,8 @@ function makeGroups(sizes: number[]): GroupDef[] {
 const seed = (n: number): SlotRef => ({ type: 'seed', seed: n });
 const winnerOf = (matchId: string): SlotRef => ({ type: 'winner', matchId });
 const loserOf = (matchId: string): SlotRef => ({ type: 'loser', matchId });
+/** Nth-best group-phase non-qualifier (1 = best of the eliminated). */
+const eliminated = (rank: number): SlotRef => ({ type: 'eliminated', rank });
 
 /** Build a Top-4 KO: SF1 (1v4), SF2 (2v3), Final, 3rd place (parallel). */
 function buildKo4(sfStart: string, sfFormat: MatchFormat, finalStart: string, finalFormat: MatchFormat): KoMatchDef[] {
@@ -200,20 +202,51 @@ const SCENARIO_SPECS: ScenarioSpec[] = [
     name: '12 Teams · Top 8',
     description: '12 Teams, 3 Vierergruppen. Top 2 je Gruppe plus die 2 besten Dritten.',
     groupSizes: [4, 4, 4],
-    groupDuration: 11,
+    groupDuration: 12,
     qualification: { topPerGroup: 2, bestRunnersUp: 2, bestRunnersUpRank: 3, qualifierCount: 8 },
-    endTime: '15:48',
-    koSummary: 'Viertelfinale, Halbfinale & Finale: Best-of-3 bis 4, MTB bis 7.',
-    // Timings match the organiser's exact reference plan: QF 13:16, SF 14:32,
-    // Finale 15:10 — each a 35-minute slot.
+    // Final ends ~15:49 (after the "Finale der Herzen" pushes it to 15:19 + 30 min).
+    endTime: '15:49',
+    koSummary:
+      'Viertelfinale, Halbfinale & Finale: 2 Sätze bis 4, bei 1:1 Match-Tie-Break bis 7 (Golden Point) · max. 30 Min pro Spiel.',
+    // 30-minute slots for QF & SF: QF 13:25/13:58, SF 14:31, then the Finale der
+    // Herzen (15:04), Finale 15:19. Best-of-3 to 4 with a match tie-break at 1–1.
     buildKo: (groupEnd) => {
-      const qfStart = addMinutes(groupEnd, GAP); // 13:13 + 3 = 13:16
-      const sfStart = addMinutes(qfStart, 2 * (35 + GAP)); // two QF waves → 14:32
-      const finalStart = addMinutes(sfStart, 35 + GAP); // 15:10
-      return buildKo8(qfStart, 35, BO3_TO_4, sfStart, BO3_TO_4, finalStart, BO3_TO_4);
+      const qfStart = addMinutes(groupEnd, GAP); // 13:22 + 3 = 13:25
+      const sfStart = addMinutes(qfStart, 2 * (30 + GAP)); // two QF waves → 14:31
+      const finalStart = addMinutes(sfStart, 30 + GAP); // 15:04 (before bonus shift)
+      return buildKo8(qfStart, 30, BO3_TO_4, sfStart, BO3_TO_4, finalStart, BO3_TO_4);
     },
   },
 ];
+
+/**
+ * Insert the "Finale der Herzen" for the 4 group-phase non-qualifiers: 2 Americano
+ * games (best vs worst, 2nd vs 3rd) in the gap between the semifinals and the final,
+ * so the finalists rest. The final and 3rd-place match are pushed back by one
+ * bonus slot. Only used when exactly 4 teams are eliminated (e.g. Scenario 6).
+ */
+function withBonusRound(
+  koSchedule: KoMatchDef[],
+  groupDuration: number,
+): { koSchedule: KoMatchDef[]; pushMin: number } {
+  const sfTimes = koSchedule.filter((m) => m.stage === 'SF').map((m) => timeToMinutes(m.time));
+  const finalDef = koSchedule.find((m) => m.stage === 'F');
+  if (!sfTimes.length || !finalDef) return { koSchedule, pushMin: 0 };
+
+  const sfTime = Math.max(...sfTimes);
+  const sfLen = timeToMinutes(finalDef.time) - sfTime; // SF slot length incl. gap
+  const bonusStart = minutesToTime(sfTime + sfLen); // = original final time
+  const pushMin = groupDuration + GAP; // bonus slot length
+
+  const shifted = koSchedule.map((m) =>
+    m.stage === 'F' || m.stage === 'P3' ? { ...m, time: addMinutes(m.time, pushMin) } : m,
+  );
+  const bonus: KoMatchDef[] = [
+    ko('BONUS1', 'BONUS', 'Finale der Herzen 1', bonusStart, 1, eliminated(1), eliminated(4), AMERICANO),
+    ko('BONUS2', 'BONUS', 'Finale der Herzen 2', bonusStart, 2, eliminated(2), eliminated(3), AMERICANO),
+  ];
+  return { koSchedule: [...shifted, ...bonus], pushMin };
+}
 
 // ── Assemble the scenarios ───────────────────────────────────────────────────
 function buildScenario(spec: ScenarioSpec): Scenario {
@@ -227,16 +260,25 @@ function buildScenario(spec: ScenarioSpec): Scenario {
   );
   const groupEnd = minutesToTime(lastStart + spec.groupDuration);
 
+  const teamCount = spec.groupSizes.reduce((a, b) => a + b, 0);
+  let koSchedule = spec.buildKo(groupEnd);
+  // Bonus round only when exactly 4 teams miss the KO (best-vs-worst, worst team).
+  // It pushes the final/3rd-place match back; spec.endTime already accounts for it.
+  if (teamCount - spec.qualification.qualifierCount === 4) {
+    koSchedule = withBonusRound(koSchedule, spec.groupDuration).koSchedule;
+  }
+
   return {
     id: spec.id,
     name: spec.name,
     description: spec.description,
-    teamCount: spec.groupSizes.reduce((a, b) => a + b, 0),
+    teamCount,
     groups,
     groupMatchDurationMin: spec.groupDuration,
+    koMatchDurationMin: 30,
     qualification: spec.qualification,
     groupSchedule,
-    koSchedule: spec.buildKo(groupEnd),
+    koSchedule,
     endTime: spec.endTime,
     koSummary: spec.koSummary,
   };
@@ -319,14 +361,30 @@ export function applyGroupLabels(
 
 /**
  * The runtime scenario for a tournament: the tested base, shifted to its start
- * time and with its custom group labels applied. Match ids stay untouched.
+ * time, with per-slot time overrides and custom group labels applied. Each match
+ * keeps its original time in `baseTime` (the stable override key); `time` is the
+ * effective clock time. Match ids stay untouched, so results always survive.
  */
 export function deriveScenario(
   scenarioId: number,
   tournamentDate?: string,
   groupLabels?: Record<string, string>,
+  slotTimes?: Record<string, string>,
 ): Scenario | undefined {
   const base = getScenario(scenarioId);
   if (!base) return undefined;
-  return applyGroupLabels(shiftScenario(base, tournamentDate), groupLabels);
+
+  const startMin = startMinutesOf(tournamentDate);
+  const baseStart = scenarioBaseStart(base);
+  const offset = startMin == null ? 0 : startMin - baseStart;
+  /** base time → effective time: an override wins, otherwise apply the shift. */
+  const eff = (t: string) => slotTimes?.[t] ?? minutesToTime(timeToMinutes(t) + offset);
+
+  const scenario: Scenario = {
+    ...base,
+    groupSchedule: base.groupSchedule.map((m) => ({ ...m, baseTime: m.time, time: eff(m.time) })),
+    koSchedule: base.koSchedule.map((m) => ({ ...m, baseTime: m.time, time: eff(m.time) })),
+    endTime: minutesToTime(timeToMinutes(base.endTime) + offset),
+  };
+  return applyGroupLabels(scenario, groupLabels);
 }

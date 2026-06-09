@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { getScenario } from '../data/scenarios';
-import { computeGroupStandings } from './standings';
+import { computeGroupStandings, compareStandings } from './standings';
 import { computeQualification } from './qualification';
-import { resolveBracket, computeFinalStandings } from './bracket';
-import type { MatchResult, SlotId, Team } from '../types';
+import { resolveBracket, computeFinalStandings, computeBonusStandings } from './bracket';
+import type { MatchResult, SlotId, Standing, Team } from '../types';
 
 // Build a minimal team map for a scenario (names == slot ids for tests).
 function makeTeams(scenarioId: number): Record<SlotId, Team> {
@@ -29,11 +29,10 @@ describe('computeGroupStandings — ranking order', () => {
   const group = scenario.groups[0]; // G1, slots G1.1..G1.4
   const matches = scenario.groupSchedule.filter((m) => m.group === group.id);
 
-  it('ranks by wins, then total diff, then total points', () => {
+  it('ranks by wins first', () => {
     // Make G1.1 win all (most wins), G1.2 second, etc. by crafting scores.
     const results: Record<string, MatchResult> = {};
     for (const m of matches) {
-      // higher slot number loses; closer scores → control diff
       const h = Number(m.home.split('.')[1]);
       const a = Number(m.away.split('.')[1]);
       results[m.id] = game(m.id, h < a ? 21 : 10, h < a ? 10 : 21);
@@ -44,21 +43,14 @@ describe('computeGroupStandings — ranking order', () => {
     expect(standings[3].won).toBe(0);
   });
 
-  it('uses total difference to break a win tie', () => {
-    // Construct a 3-way tie on wins resolved by diff. Simpler: two teams 2 wins.
-    const results: Record<string, MatchResult> = {};
-    for (const m of matches) {
-      const h = Number(m.home.split('.')[1]);
-      const a = Number(m.away.split('.')[1]);
-      // G1.1 and G1.2 both strong; give G1.1 bigger margins
-      const winner = h < a ? m.home : m.away;
-      const big = winner === 'G1.1';
-      results[m.id] =
-        h < a ? game(m.id, big ? 21 : 16, big ? 5 : 14) : game(m.id, big ? 5 : 14, big ? 21 : 16);
-    }
-    const standings = computeGroupStandings(scenario, group, teams, results);
-    expect(standings[0].teamId).toBe('G1.1');
-    expect(standings[0].diff).toBeGreaterThan(standings[1].diff);
+  it('breaks a win tie by POINTS SCORED before difference', () => {
+    const base = { rank: 0, played: 2, won: 1, lost: 1, matchPoints: 2 };
+    // MORE: more points (15) but worse difference (+1). LESS: fewer points (10) but +7.
+    const more: Standing = { ...base, teamId: 'MORE', pointsFor: 15, pointsAgainst: 14, diff: 1 };
+    const less: Standing = { ...base, teamId: 'LESS', pointsFor: 10, pointsAgainst: 3, diff: 7 };
+    // equal wins → the higher-scoring team ranks above, despite the smaller diff
+    expect(compareStandings(more, less)).toBeLessThan(0);
+    expect([less, more].sort(compareStandings)[0].teamId).toBe('MORE');
   });
 });
 
@@ -78,7 +70,7 @@ describe('computeQualification', () => {
     expect(new Set(q.seeds)).toEqual(new Set(['G1.1', 'G2.1', 'G3.1', 'G4.1']));
   });
 
-  it('top-2: winners take the protected seeds and no first-round same-group clash', () => {
+  it('top-8: seeds by performance, best plays worst in the QF', () => {
     const scenario = getScenario(2)!; // 16 teams, top 8
     const teams = makeTeams(2);
     const results: Record<string, MatchResult> = {};
@@ -88,30 +80,56 @@ describe('computeQualification', () => {
       results[m.id] = game(m.id, h < a ? 21 : 8, h < a ? 8 : 21);
     }
     const q = computeQualification(scenario, teams, results);
-    // winners (G*.1) should occupy seeds 1..4
-    const topFour = q.seeds.slice(0, 4);
-    expect(topFour.every((id) => id.endsWith('.1'))).toBe(true);
+    // group winners (.1, 3 wins each) outrank runners-up (.2) → seeds 1..4
+    expect(q.seeds.slice(0, 4).every((id) => id.endsWith('.1'))).toBe(true);
+    expect(q.seeds.slice(4, 8).every((id) => id.endsWith('.2'))).toBe(true);
 
-    // verify each KO first-round pair (QF) has teams from different groups
-    const groupOf = (id: SlotId) => teams[id].group;
-    const bracket = resolveBracket(scenario, q.seeds, {});
-    for (const m of bracket.filter((b) => b.def.stage === 'QF')) {
-      expect(groupOf(m.homeTeam!)).not.toBe(groupOf(m.awayTeam!));
-    }
+    // best vs worst: the QF containing seed 1 must also contain seed 8
+    const bracket = resolveBracket(scenario, q.seeds, {}, q.eliminated);
+    const qfWithTop = bracket.find(
+      (b) => b.def.stage === 'QF' && (b.homeTeam === q.seeds[0] || b.awayTeam === q.seeds[0]),
+    )!;
+    const other = qfWithTop.homeTeam === q.seeds[0] ? qfWithTop.awayTeam : qfWithTop.homeTeam;
+    expect(other).toBe(q.seeds[7]);
   });
 });
 
-describe('Scenario 6 KO timings match the organiser reference plan', () => {
-  it('QF 13:16, second QF wave 13:54, SF 14:32, Final & P3 15:10', () => {
+describe('Scenario 6 KO timings — reference plan + bonus round', () => {
+  it('12-min groups, 30-min KO: QF 13:25/13:58, SF 14:31, Finale der Herzen 15:04, Final 15:19', () => {
     const ko = getScenario(6)!.koSchedule;
     const at = (id: string) => ko.find((m) => m.id === id)!;
-    expect([at('QF1').time, at('QF2').time]).toEqual(['13:16', '13:16']);
-    expect([at('QF3').time, at('QF4').time]).toEqual(['13:54', '13:54']);
-    expect([at('SF1').time, at('SF2').time]).toEqual(['14:32', '14:32']);
-    expect([at('F').time, at('P3').time]).toEqual(['15:10', '15:10']);
-    // courts: finale on 1, 3rd-place parallel on 2
+    expect([at('QF1').time, at('QF2').time]).toEqual(['13:25', '13:25']);
+    expect([at('QF3').time, at('QF4').time]).toEqual(['13:58', '13:58']);
+    expect([at('SF1').time, at('SF2').time]).toEqual(['14:31', '14:31']);
+    // "Finale der Herzen" sits in the gap; final/P3 move back one bonus slot (15 min)
+    expect([at('BONUS1').time, at('BONUS2').time]).toEqual(['15:04', '15:04']);
+    expect([at('BONUS1').court, at('BONUS2').court]).toEqual([1, 2]);
+    expect([at('F').time, at('P3').time]).toEqual(['15:19', '15:19']);
     expect(at('F').court).toBe(1);
     expect(at('P3').court).toBe(2);
+    // KO matches: best-of-3, sets to 4, match tie-break to 7 at 1–1
+    expect(at('F').format).toMatchObject({ type: 'bestOfSets', sets: 3, setTarget: 4, tieBreakTarget: 7 });
+  });
+
+  it('top-4 scenarios have no bonus round', () => {
+    expect(getScenario(1)!.koSchedule.some((m) => m.stage === 'BONUS')).toBe(false);
+  });
+});
+
+describe('bonus round — best vs worst, worst team', () => {
+  it('resolves the 4 eliminated and crowns the worst team', () => {
+    const scenario = getScenario(6)!; // has the bonus round
+    const eliminated: SlotId[] = ['E1', 'E2', 'E3', 'E4']; // best → worst
+    // BONUS1 = best(E1) vs worst(E4); BONUS2 = 2nd(E2) vs 3rd(E3)
+    const results: Record<string, MatchResult> = {
+      BONUS1: game('BONUS1', 15, 6), // E1 beats E4
+      BONUS2: game('BONUS2', 10, 12), // E3 beats E2
+    };
+    const bracket = resolveBracket(scenario, [], results, eliminated);
+    const bonus = computeBonusStandings(bracket, eliminated)!;
+    // winners E1,E3 take 5th/6th; losers E2,E4 take 7th/8th (by ranking)
+    expect(bonus.places.map((p) => p.teamId)).toEqual(['E1', 'E3', 'E2', 'E4']);
+    expect(bonus.worstTeamId).toBe('E4');
   });
 });
 

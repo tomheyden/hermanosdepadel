@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { usePublishedTournament } from '../hooks/useTournament';
 import { computeAllStandings } from '../lib/standings';
 import { computeQualification } from '../lib/qualification';
-import { resolveBracket, computeFinalStandings } from '../lib/bracket';
+import { resolveBracket, computeFinalStandings, computeBonusStandings } from '../lib/bracket';
 import { teamName } from '../lib/display';
 import type { MatchResult, Scenario, SetScore, SlotId, Team } from '../types';
 import { TrophyIcon } from '../components/icons';
@@ -11,13 +11,15 @@ import { Countdown, useCountdown, formatTournamentDate } from '../components/Cou
 import Bracket from '../components/live/Bracket';
 import AllMatches from '../components/live/AllMatches';
 import ActiveGamesView from '../components/live/ActiveGamesView';
+import Rules from '../components/live/Rules';
 
-type Tab = 'active' | 'schedule' | 'groups' | 'bracket';
+type Tab = 'active' | 'schedule' | 'groups' | 'bracket' | 'rules';
 const TABS: Array<{ id: Tab; label: string }> = [
   { id: 'active', label: 'Aktives Spiel' },
   { id: 'schedule', label: 'Alle Spiele' },
   { id: 'groups', label: 'Gruppenübersicht' },
   { id: 'bracket', label: 'KO Phase' },
+  { id: 'rules', label: 'Spielregeln' },
 ];
 
 /**
@@ -48,6 +50,7 @@ export default function LiveView() {
         results: tournament.results,
         startedAt: tournament.startedAt ?? {},
         liveScores: tournament.liveScores ?? {},
+        liveSets: tournament.liveSets ?? {},
       }}
       scenario={scenario}
     />
@@ -107,10 +110,11 @@ function Beamer({
     results: Record<string, MatchResult>;
     startedAt: Record<string, number>;
     liveScores: Record<string, SetScore>;
+    liveSets: Record<string, SetScore[]>;
   };
   scenario: Scenario;
 }) {
-  const { teams, results, startedAt, liveScores } = state;
+  const { teams, results, startedAt, liveScores, liveSets } = state;
   const preview = phase === 'published';
   const visibleTabs = preview ? TABS.filter((t) => t.id !== 'active') : TABS;
   const [tab, setTab] = useState<Tab>(preview ? 'schedule' : 'active');
@@ -118,12 +122,15 @@ function Beamer({
   const activeTab = visibleTabs.some((t) => t.id === tab) ? tab : visibleTabs[0].id;
 
   const qualification = computeQualification(scenario, teams, results);
+  const eliminated = qualification.complete ? qualification.eliminated : [];
   const bracket = resolveBracket(
     scenario,
     qualification.complete ? qualification.seeds : [],
     results,
+    eliminated,
   );
   const places = computeFinalStandings(bracket);
+  const worstTeamId = computeBonusStandings(bracket, eliminated)?.worstTeamId ?? null;
 
   return (
     <div className="min-h-[100svh] bg-court text-paper">
@@ -188,7 +195,7 @@ function Beamer({
           </section>
         )}
 
-        {places && <Podium places={places} teams={teams} />}
+        {places && <Podium places={places} teams={teams} worstTeamId={worstTeamId} />}
 
         {activeTab === 'active' && (
           <ActiveGamesView
@@ -198,6 +205,7 @@ function Beamer({
             results={results}
             startedAt={startedAt}
             liveScores={liveScores}
+            liveSets={liveSets}
           />
         )}
 
@@ -219,12 +227,29 @@ function Beamer({
             <h2 className="mb-6 font-display text-3xl font-bold uppercase tracking-wide text-accent">
               KO-Baum
             </h2>
-            <Bracket scenario={scenario} teams={teams} results={results} bracket={bracket} />
+            <Bracket
+              scenario={scenario}
+              teams={teams}
+              results={results}
+              bracket={bracket}
+              eliminated={eliminated}
+              startedAt={startedAt}
+              liveScores={liveScores}
+              liveSets={liveSets}
+            />
           </section>
         )}
+
+        {activeTab === 'rules' && <Rules scenario={scenario} variant="dark" />}
       </div>
     </div>
   );
+}
+
+/** "Spieler 1 · Spieler 2" for a team, or '' when no players are entered. */
+function playersLabel(team?: Team): string {
+  if (!team) return '';
+  return [team.player1, team.player2].map((p) => p?.trim()).filter(Boolean).join(' · ');
 }
 
 function GroupsGrid({
@@ -265,10 +290,19 @@ function GroupsGrid({
                           {s.rank}
                         </span>
                       </td>
-                      <td className="py-3 pl-2 pr-2 text-lg font-semibold">
-                        {teamName(teams, s.teamId)}
+                      <td className="w-full py-2.5 pl-2 pr-3">
+                        <p className="text-lg font-semibold leading-tight [overflow-wrap:anywhere]">
+                          {teamName(teams, s.teamId)}
+                        </p>
+                        {playersLabel(teams[s.teamId]) && (
+                          <p className="text-xs leading-tight text-paper/50 [overflow-wrap:anywhere]">
+                            {playersLabel(teams[s.teamId])}
+                          </p>
+                        )}
                       </td>
-                      <td className="py-3 pr-2 text-center text-sm text-paper/60">{s.won} S</td>
+                      <td className="whitespace-nowrap py-3 pr-4 text-right text-sm text-paper/60">
+                        {s.won} S
+                      </td>
                       <td className="py-3 pr-5 text-right font-display text-xl font-bold tabular-nums text-accent">
                         {s.pointsFor}
                       </td>
@@ -287,9 +321,11 @@ function GroupsGrid({
 function Podium({
   places,
   teams,
+  worstTeamId,
 }: {
   places: NonNullable<ReturnType<typeof computeFinalStandings>>;
   teams: Record<SlotId, Team>;
+  worstTeamId?: SlotId | null;
 }) {
   const style: Record<number, string> = {
     1: 'bg-accent text-accent-ink',
@@ -310,6 +346,17 @@ function Podium({
           </div>
         ))}
       </div>
+      {worstTeamId && (
+        <div className="mt-4 flex items-center gap-4 rounded-2xl border border-paper/15 px-6 py-5">
+          <TrophyIcon className="h-7 w-7 shrink-0 text-paper/55" />
+          <div className="min-w-0">
+            <p className="font-display text-xs font-bold uppercase tracking-[0.2em] text-paper/55">
+              Worst Team of the Tournament
+            </p>
+            <p className="truncate text-xl font-bold">{teamName(teams, worstTeamId)}</p>
+          </div>
+        </div>
+      )}
     </section>
   );
 }

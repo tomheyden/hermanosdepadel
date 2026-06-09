@@ -58,7 +58,9 @@ export default function ResultEditor({
       return;
     }
     const result: MatchResult = { matchId, sets };
-    if (format.type === 'bestOfSets' && sets.length === 3) result.thirdSetIsTieBreak = true;
+    // Only mark the 3rd set as a match tie-break for formats that actually use one.
+    if (format.type === 'bestOfSets' && format.tieBreakTarget && sets.length === 3)
+      result.thirdSetIsTieBreak = true;
     onSave(result);
     onClose();
   };
@@ -77,7 +79,7 @@ export default function ResultEditor({
         {cells.map((row, i) => (
           <ScoreRow
             key={i}
-            label={isSets ? (i === 2 ? 'Satz 3 / MTB' : `Satz ${i + 1}`) : ''}
+            label={isSets ? (i === 2 && format.tieBreakTarget ? 'Satz 3 / MTB' : `Satz ${i + 1}`) : ''}
             home={row[0]}
             away={row[1]}
             onHome={(v) => setCell(i, 0, v)}

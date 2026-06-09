@@ -19,7 +19,9 @@ export function formatLabel(format: MatchFormat): string {
     case 'shortSet':
       return `Kurzsatz bis ${format.setTarget}`;
     case 'bestOfSets':
-      return `Best-of-${format.sets} bis ${format.setTarget} · MTB ${format.tieBreakTarget}`;
+      return format.tieBreakTarget
+        ? `Best-of-${format.sets} bis ${format.setTarget} · MTB ${format.tieBreakTarget}`
+        : `Best-of-${format.sets} Sätze · je ${format.setTarget} Spiele`;
   }
 }
 

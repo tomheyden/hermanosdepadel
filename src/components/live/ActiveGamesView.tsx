@@ -3,7 +3,12 @@ import { teamName } from '../../lib/display';
 import { remainingSeconds, formatMMSS } from '../../lib/liveStatus';
 import { activeGroupMatches } from '../../lib/activeGames';
 import { slotTimeline, nextActionSlot, formatRemaining } from '../../lib/timeline';
+import { resolveBracket, type ResolvedKoMatch } from '../../lib/bracket';
+import { computeQualification } from '../../lib/qualification';
+import { activeKoMatches, nextKoMatch } from '../../lib/koLive';
+import { evaluateMatch } from '../../lib/match';
 import { useTicker } from '../../hooks/useTicker';
+import SetScoreboard from './SetScoreboard';
 
 interface Props {
   scenario: Scenario;
@@ -12,6 +17,7 @@ interface Props {
   results: Record<string, MatchResult>;
   startedAt: Record<string, number>;
   liveScores: Record<string, SetScore>;
+  liveSets: Record<string, SetScore[]>;
 }
 
 export default function ActiveGamesView({
@@ -21,10 +27,48 @@ export default function ActiveGamesView({
   results,
   startedAt,
   liveScores,
+  liveSets,
 }: Props) {
   const now = useTicker();
   const active = activeGroupMatches(scenario, startedAt, results);
   const next = nextActionSlot(slotTimeline(scenario, tournamentDate, startedAt, results, now));
+
+  // KO live (after the group phase): resolve the bracket and surface KO matches.
+  const qualification = computeQualification(scenario, teams, results);
+  const bracket = resolveBracket(
+    scenario,
+    qualification.complete ? qualification.seeds : [],
+    results,
+    qualification.complete ? qualification.eliminated : [],
+  );
+  const koActive = activeKoMatches(bracket, startedAt, results);
+  const koNext = nextKoMatch(bracket, startedAt, results);
+
+  // Once the group phase is over, the KO flow owns this tab.
+  if (active.length === 0 && qualification.complete) {
+    return (
+      <section>
+        <h2 className="mb-6 font-display text-3xl font-bold uppercase tracking-wide text-accent">
+          Aktives Spiel
+        </h2>
+        {koActive.length > 0 ? (
+          <div className="grid gap-6 lg:grid-cols-2">
+            {koActive.map((m) => (
+              <KoLiveCard
+                key={m.def.id}
+                m={m}
+                teams={teams}
+                liveSets={liveSets[m.def.id]}
+                liveScore={liveScores[m.def.id]}
+              />
+            ))}
+          </div>
+        ) : (
+          <KoNext m={koNext} teams={teams} />
+        )}
+      </section>
+    );
+  }
 
   return (
     <section>
@@ -122,6 +166,84 @@ function NextUp({
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+function KoLiveCard({
+  m,
+  teams,
+  liveSets,
+  liveScore,
+}: {
+  m: ResolvedKoMatch;
+  teams: Record<SlotId, Team>;
+  liveSets?: SetScore[];
+  liveScore?: SetScore;
+}) {
+  const format = m.def.format;
+  const isSets = format.type === 'bestOfSets';
+  const home = teamName(teams, m.homeTeam);
+  const away = teamName(teams, m.awayTeam);
+  const sets = liveSets ?? [{ home: 0, away: 0 }];
+  const single = liveScore ?? { home: 0, away: 0 };
+  const out = isSets
+    ? evaluateMatch({ matchId: m.def.id, sets: sets.filter((s) => s.home || s.away) }, format)
+    : evaluateMatch({ matchId: m.def.id, sets: [single] }, format);
+
+  return (
+    <div className="overflow-hidden rounded-3xl border border-accent bg-court-soft ko-champion-glow">
+      <div className="flex items-center justify-between bg-black/20 px-6 py-3">
+        <span className="font-display text-lg font-bold uppercase tracking-wide">
+          {m.def.label} · Platz {m.def.court}
+        </span>
+        <span className="rounded-full bg-accent px-3 py-1 font-display text-sm font-bold uppercase tracking-wide text-accent-ink">
+          live
+        </span>
+      </div>
+      {isSets ? (
+        <div className="p-5">
+          <SetScoreboard
+            home={home}
+            away={away}
+            sets={sets}
+            homeSetsWon={out.homeSetsWon}
+            awaySetsWon={out.awaySetsWon}
+            activeIndex={sets.length - 1}
+            tieBreakIndex={format.tieBreakTarget ? 2 : undefined}
+            winner={out.winner}
+            variant="dark"
+          />
+        </div>
+      ) : (
+        <div className="divide-y divide-paper/10">
+          <TeamScore name={home} value={single.home} lead={single.home > single.away} />
+          <TeamScore name={away} value={single.away} lead={single.away > single.home} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function KoNext({ m, teams }: { m: ResolvedKoMatch | null; teams: Record<SlotId, Team> }) {
+  if (!m) {
+    return (
+      <div className="rounded-3xl border border-dashed border-paper/20 px-6 py-20 text-center">
+        <p className="text-xl font-semibold">Gerade kein Spiel aktiv</p>
+        <p className="mt-2 text-paper/60">Sobald ein KO-Spiel startet, erscheint es hier live.</p>
+      </div>
+    );
+  }
+  return (
+    <div className="rounded-3xl border border-dashed border-paper/25 px-6 py-12 text-center">
+      <p className="font-display text-sm font-semibold uppercase tracking-[0.25em] text-paper/60">
+        Als Nächstes · {m.def.label} · {m.def.time}
+      </p>
+      <p className="mt-4 text-2xl font-bold">
+        {teamName(teams, m.homeTeam)} <span className="text-paper/50">vs</span>{' '}
+        {teamName(teams, m.awayTeam)}
+      </p>
+      <p className="mt-1 text-paper/55">Platz {m.def.court}</p>
     </div>
   );
 }

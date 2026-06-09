@@ -12,8 +12,9 @@ import ScheduleView from '../components/live/ScheduleView';
 import GroupStandings from '../components/live/GroupStandings';
 import BracketView from '../components/live/BracketView';
 import FinalStandings from '../components/live/FinalStandings';
+import Rules from '../components/live/Rules';
 
-type Tab = 'teams' | 'active' | 'schedule' | 'groups' | 'bracket' | 'final';
+type Tab = 'teams' | 'active' | 'schedule' | 'groups' | 'bracket' | 'final' | 'rules';
 const TABS: Array<{ id: Tab; label: string }> = [
   { id: 'teams', label: 'Teams & Gruppen' },
   { id: 'active', label: 'Aktive Spiele' },
@@ -21,6 +22,7 @@ const TABS: Array<{ id: Tab; label: string }> = [
   { id: 'groups', label: 'Gruppen' },
   { id: 'bracket', label: 'KO-Baum' },
   { id: 'final', label: 'Endstand' },
+  { id: 'rules', label: 'Spielregeln' },
 ];
 
 export default function Live() {
@@ -132,6 +134,11 @@ export default function Live() {
               <PhaseBar
                 phase={phase}
                 tournamentDate={active.tournamentDate}
+                liveCount={
+                  Object.keys(active.startedAt ?? {}).filter((id) => !(active.results ?? {})[id])
+                    .length
+                }
+                doneCount={Object.keys(active.results ?? {}).length}
                 onPublish={() => actions.publishTournament(active.id)}
                 onUnpublish={actions.unpublishTournament}
                 onGoLive={actions.goLive}
@@ -154,10 +161,17 @@ export default function Live() {
                   results={active.results}
                   startedAt={active.startedAt ?? {}}
                   liveScores={active.liveScores ?? {}}
+                  liveSets={active.liveSets ?? {}}
                   onStartSlot={actions.startSlot}
                   onClearStart={actions.clearSlotStart}
                   onAdjust={actions.adjustScore}
                   onFinish={actions.finishMatch}
+                  onStartKo={actions.startKoMatch}
+                  onAdjustKo={actions.adjustKoGame}
+                  onEndKo={actions.endKoSet}
+                  onUndoKo={actions.undoKoSet}
+                  onFinishKo={actions.finishKoMatch}
+                  onClearKo={actions.clearKoMatch}
                 />
               )}
               {tab === 'schedule' && (
@@ -166,10 +180,14 @@ export default function Live() {
                   teams={active.teams}
                   results={active.results}
                   startedAt={active.startedAt ?? {}}
+                  slotTimes={active.slotTimes ?? {}}
                   onSave={actions.setResult}
                   onClear={actions.clearResult}
                   onStartSlot={actions.startSlot}
                   onClearStart={actions.clearSlotStart}
+                  onSetSlotTime={actions.setSlotTime}
+                  onReflowTimes={actions.reflowTimes}
+                  onResetTimes={actions.resetSlotTimes}
                 />
               )}
               {tab === 'groups' && (
@@ -180,6 +198,9 @@ export default function Live() {
                   scenario={scenario}
                   teams={active.teams}
                   results={active.results}
+                  startedAt={active.startedAt ?? {}}
+                  liveScores={active.liveScores ?? {}}
+                  liveSets={active.liveSets ?? {}}
                   onSave={actions.setResult}
                   onClear={actions.clearResult}
                 />
@@ -187,6 +208,7 @@ export default function Live() {
               {tab === 'final' && (
                 <FinalStandings scenario={scenario} teams={active.teams} results={active.results} />
               )}
+              {tab === 'rules' && <Rules scenario={scenario} variant="light" />}
 
               <div className="mt-10 border-t border-ink/10 pt-5">
                 <button
@@ -220,6 +242,8 @@ export default function Live() {
 function PhaseBar({
   phase,
   tournamentDate,
+  liveCount = 0,
+  doneCount = 0,
   onPublish,
   onUnpublish,
   onGoLive,
@@ -227,6 +251,8 @@ function PhaseBar({
 }: {
   phase: TournamentPhase;
   tournamentDate?: string;
+  liveCount?: number;
+  doneCount?: number;
   onPublish: () => void;
   onUnpublish: () => void;
   onGoLive: () => void;
@@ -234,6 +260,7 @@ function PhaseBar({
 }) {
   const countdown = useCountdown(tournamentDate);
   const dateLabel = formatTournamentDate(tournamentDate);
+  const anyStarted = liveCount > 0 || doneCount > 0;
 
   const remainingLabel = countdown
     ? countdown.done
@@ -255,7 +282,16 @@ function PhaseBar({
             <p className="font-display text-sm font-bold uppercase tracking-wide text-court">
               Turnier läuft · Live
             </p>
-            {remainingLabel && <p className="mt-0.5 text-xs text-muted">{remainingLabel}</p>}
+            <p className="mt-0.5 text-xs text-muted">
+              {anyStarted ? (
+                <>
+                  <span className="font-semibold text-ink">{liveCount}</span> live ·{' '}
+                  <span className="font-semibold text-ink">{doneCount}</span> gespielt
+                </>
+              ) : (
+                remainingLabel
+              )}
+            </p>
           </div>
         </div>
         <button

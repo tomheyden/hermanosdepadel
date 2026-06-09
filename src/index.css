@@ -63,43 +63,46 @@
   }
 
   /* ── Epic KO bracket ──────────────────────────────────────────────────
-     Real tournament-tree connector lines (desktop only). Each round (except
-     the final) is rendered as a stack of "pairs"; each pair draws an L-shaped
-     line from its two matches into the next round's match centre. */
-  @media (min-width: 1024px) {
-    .ko-pair {
-      position: relative;
-    }
-    /* horizontal stub leaving each match toward the joining line */
-    .ko-pair.has-next .ko-match::after {
-      content: '';
-      position: absolute;
-      top: 50%;
-      left: 100%;
-      width: 1.5rem;
-      height: 2px;
-      background: rgba(198, 241, 65, 0.45);
-    }
-    /* vertical line joining the pair's two match centres (at 25% / 75%) */
-    .ko-pair.has-next::before {
-      content: '';
-      position: absolute;
-      right: -1.5rem;
-      top: 25%;
-      bottom: 25%;
-      width: 2px;
-      background: rgba(198, 241, 65, 0.45);
-    }
-    /* stub from the pair midpoint into the next round */
-    .ko-pair.has-next::after {
-      content: '';
-      position: absolute;
-      right: -3rem;
-      top: 50%;
-      width: 1.5rem;
-      height: 2px;
-      background: rgba(198, 241, 65, 0.45);
-    }
+     Real tournament-tree connector lines (all sizes — on mobile the tree scrolls
+     horizontally). Each match sits in an equal-height flex cell, vertically
+     centred, so a pair's two card centres are always exactly one cell-height
+     apart, no matter how tall the cards are. Connectors anchor to those centres:
+       • each cell: a horizontal stub from the card centre into the gutter
+       • top cell:  a vertical line down to the bottom card's centre
+       • bottom cell: a horizontal stub from the pair midpoint into the next round
+     The 3rem column gap holds the two 1.5rem stubs + the vertical line. */
+  .ko-cell {
+    position: relative;
+  }
+  .ko-cell.ko-top::before,
+  .ko-cell.ko-bottom::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 100%;
+    width: 1.5rem;
+    height: 2px;
+    background: rgba(198, 241, 65, 0.45);
+  }
+  /* vertical line: from the top card centre (50%) down a full cell (→ bottom centre) */
+  .ko-cell.ko-top::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: calc(100% + 1.5rem);
+    width: 2px;
+    height: 100%;
+    background: rgba(198, 241, 65, 0.45);
+  }
+  /* outgoing stub from the pair midpoint (the bottom cell's top edge) onward */
+  .ko-cell.ko-bottom::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: calc(100% + 1.5rem);
+    width: 1.5rem;
+    height: 2px;
+    background: rgba(198, 241, 65, 0.45);
   }
 
   .ko-champion-glow {

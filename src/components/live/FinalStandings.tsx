@@ -1,6 +1,6 @@
 import type { MatchResult, Scenario, SlotId, Team } from '../../types';
 import { computeQualification } from '../../lib/qualification';
-import { resolveBracket, computeFinalStandings } from '../../lib/bracket';
+import { resolveBracket, computeFinalStandings, computeBonusStandings } from '../../lib/bracket';
 import { teamName } from '../../lib/display';
 import { TrophyIcon } from '../icons';
 
@@ -20,8 +20,9 @@ const PLACE_LABEL: Record<number, string> = { 1: 'Sieger', 2: 'Finalist', 3: 'Pl
 
 export default function FinalStandings({ scenario, teams, results }: Props) {
   const qualification = computeQualification(scenario, teams, results);
-  const bracket = resolveBracket(scenario, qualification.seeds, results);
+  const bracket = resolveBracket(scenario, qualification.seeds, results, qualification.eliminated);
   const places = computeFinalStandings(bracket);
+  const bonus = computeBonusStandings(bracket, qualification.eliminated);
 
   return (
     <div>
@@ -55,6 +56,18 @@ export default function FinalStandings({ scenario, teams, results }: Props) {
             </li>
           ))}
         </ol>
+      )}
+
+      {bonus?.worstTeamId && (
+        <div className="mt-6 flex items-center gap-4 rounded-2xl border border-ink/15 bg-white px-6 py-5">
+          <TrophyIcon className="h-8 w-8 shrink-0 text-muted" />
+          <div className="min-w-0">
+            <p className="font-display text-xs font-semibold uppercase tracking-[0.2em] text-muted">
+              Worst Team of the Tournament
+            </p>
+            <p className="truncate text-2xl font-bold">{teamName(teams, bonus.worstTeamId)}</p>
+          </div>
+        </div>
       )}
     </div>
   );

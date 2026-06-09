@@ -4,13 +4,14 @@
 //  Confirmed rules:
 //   • Take the top `topPerGroup` of every group, plus (optionally) the best
 //     `bestRunnersUp` teams that finished at `bestRunnersUpRank` across groups.
-//   • Seeding is "über-Kreuz": group winners are PROTECTED on the strong seeds,
-//     and a winner faces a runner-up from a DIFFERENT group in the first KO
-//     round wherever possible (best-effort same-group avoidance via swaps).
+//   • Seeding is PURE PERFORMANCE: every qualifier is ranked globally by
+//     (1) wins, then (2) points scored. The bracket then pairs best vs worst
+//     (seed 1 v seed N, 2 v N-1, …). No group-winner protection, no same-group
+//     avoidance — strictly "der Beste gegen den Schlechtesten".
 //
-//  Output: a `seeds` array where seeds[i] is the team id for seed number i+1.
-//  The KO bracket in scenarios.ts references { type: 'seed', seed: n } and is
-//  filled from this array.
+//  Output: a `seeds` array where seeds[i] is the team id for seed number i+1,
+//  plus `eliminated` — the group-phase non-qualifiers ranked best→worst (they
+//  feed the bonus round).
 // ============================================================================
 
 import type { MatchResult, Scenario, SlotId, Standing, Team } from '../types';
@@ -27,42 +28,37 @@ export interface QualificationResult {
   /** seeds[i] === team id for seed (i+1); '' if no team yet. */
   seeds: SlotId[];
   qualifiers: Qualifier[]; // in seed order
+  /** group-phase non-qualifiers, ranked best→worst (eliminated[0] is the best). */
+  eliminated: SlotId[];
   /** true once the whole group phase is decided (qualifiers are final). */
   complete: boolean;
 }
 
-/** Standard first-round pairings (low seed = stronger, top of its pair). */
-function bracketPairs(n: number): Array<[number, number]> {
-  if (n === 4) return [[1, 4], [2, 3]];
-  if (n === 8)
-    return [
-      [1, 8],
-      [4, 5],
-      [3, 6],
-      [2, 7],
-    ];
-  throw new Error(`Unsupported KO size: ${n}`);
+/**
+ * KO ranking comparator: (1) wins, then (2) points scored. Difference and a
+ * stable id are only deep tie-breakers. Used to seed the bracket and to rank
+ * the eliminated teams for the bonus round.
+ */
+export function compareByPerformance(a: Standing, b: Standing): number {
+  if (b.matchPoints !== a.matchPoints) return b.matchPoints - a.matchPoints; // 1. wins
+  if (b.pointsFor !== a.pointsFor) return b.pointsFor - a.pointsFor; // 2. points scored
+  if (b.diff !== a.diff) return b.diff - a.diff; // deep tie-break: difference
+  return a.teamId.localeCompare(b.teamId); // deterministic fallback
 }
 
 /**
- * Human label for a KO seed slot, shown until the qualifier is actually
- * determined. Seeds are ordered winners-first, then runners-up, then wildcards,
- * so the tier can be derived from the seed number + the scenario's config.
+ * Placeholder label for a KO seed slot, shown until the group phase is decided.
+ * Seeding is pure performance now, so the honest label is just the seed rank.
  */
-export function seedLabel(scenario: Scenario, seed: number): string {
-  const groups = scenario.groups.length;
-  const q = scenario.qualification;
-  if (seed <= groups) return `Gruppensieger ${seed}`;
-  let base = groups;
-  if (q.topPerGroup >= 2) {
-    if (seed <= base + groups) return `Gruppenzweiter ${seed - base}`;
-    base += groups;
-  }
-  if (q.bestRunnersUp) {
-    const word = q.bestRunnersUpRank === 3 ? 'Gruppendritter' : 'Gruppenzweiter';
-    return `Bester ${word} ${seed - base}`;
-  }
-  return `Qualifikant ${seed}`;
+export function seedLabel(_scenario: Scenario, seed: number): string {
+  return `Setzplatz ${seed}`;
+}
+
+/** Placeholder label for a bonus-round slot (Nth-best eliminated team). */
+export function eliminatedLabel(rank: number, total = 4): string {
+  if (rank === 1) return 'Bester Ausgeschiedener';
+  if (rank === total) return 'Schlechtester';
+  return `${rank}.-bester Ausgeschiedener`;
 }
 
 export function computeQualification(
@@ -100,49 +96,29 @@ export function computeQualification(
     wildcards.push(...candidates.slice(0, bestRunnersUp));
   }
 
-  // 3. Seed-priority order: winners first (by strength), then the rest
-  //    (runners-up, then wildcards) by strength. Assigning this order to seeds
-  //    1..N puts winners on the protected top-of-pair seeds.
-  const ordered = [...direct, ...wildcards].sort((a, b) => {
-    if (a.groupRank !== b.groupRank) return a.groupRank - b.groupRank;
-    return compareStandings(a.standing, b.standing);
-  });
-
+  // 3. Pure-performance seed order: rank ALL qualifiers globally by wins → points.
+  //    Seed 1 = strongest. The bracket pairs seed i with seed (N+1−i), i.e. the
+  //    best plays the worst — regardless of group rank.
+  const ordered = [...direct, ...wildcards].sort((a, b) =>
+    compareByPerformance(a.standing, b.standing),
+  );
   const bySeed = ordered.slice(0, qualifierCount); // index i → seed i+1
+  const qualifiedIds = new Set(bySeed.map((q) => q.teamId));
 
-  // 4. Best-effort same-group avoidance: swap runner-up (partner) seeds so a
-  //    winner doesn't meet a team from its own group in the first KO round.
-  if (bySeed.length === qualifierCount) {
-    avoidSameGroupFirstRound(bySeed, bracketPairs(qualifierCount));
+  // 4. The non-qualifiers, ranked best→worst (same criteria) — they feed the
+  //    bonus round (best vs worst), and the very last is the "worst team".
+  const eliminated: Standing[] = [];
+  for (const group of scenario.groups) {
+    for (const s of allStandings[group.id]) {
+      if (!qualifiedIds.has(s.teamId)) eliminated.push(s);
+    }
   }
+  eliminated.sort(compareByPerformance);
 
   return {
     seeds: bySeed.map((q) => q.teamId),
     qualifiers: bySeed,
+    eliminated: eliminated.map((s) => s.teamId),
     complete: isGroupPhaseComplete(scenario, results),
   };
-}
-
-/**
- * Swaps the "partner" (higher-numbered) seed of any pair whose two teams share
- * a group, with another partner seed, when that removes the clash without
- * creating a new one. Winners on the low seeds stay put (protected).
- */
-function avoidSameGroupFirstRound(bySeed: Qualifier[], pairs: Array<[number, number]>) {
-  const at = (seed: number) => bySeed[seed - 1];
-  const sameGroup = (s1: number, s2: number) => at(s1).group === at(s2).group;
-
-  for (const [low, high] of pairs) {
-    if (!sameGroup(low, high)) continue;
-    for (const [low2, high2] of pairs) {
-      if (high2 === high) continue;
-      // swapping the two partner teams must resolve THIS clash and not break the other pair
-      if (at(low).group !== at(high2).group && at(low2).group !== at(high).group) {
-        const tmp = bySeed[high - 1];
-        bySeed[high - 1] = bySeed[high2 - 1];
-        bySeed[high2 - 1] = tmp;
-        break;
-      }
-    }
-  }
 }

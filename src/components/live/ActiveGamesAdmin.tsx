@@ -6,6 +6,7 @@ import { activeGroupMatches } from '../../lib/activeGames';
 import { slotTimeline, nextActionSlot, formatRemaining } from '../../lib/timeline';
 import { useTicker } from '../../hooks/useTicker';
 import { TrophyIcon } from '../icons';
+import KoActive from './KoActive';
 
 interface Props {
   scenario: Scenario;
@@ -14,34 +15,65 @@ interface Props {
   results: Record<string, MatchResult>;
   startedAt: Record<string, number>;
   liveScores: Record<string, SetScore>;
+  liveSets: Record<string, SetScore[]>;
   onStartSlot: (ids: string[]) => void;
   onClearStart: (ids: string[]) => void;
   onAdjust: (id: string, side: 'home' | 'away', delta: number) => void;
   onFinish: (id: string) => void;
+  onStartKo: (id: string) => void;
+  onAdjustKo: (id: string, setIndex: number, side: 'home' | 'away', delta: number) => void;
+  onEndKo: (id: string) => void;
+  onUndoKo: (id: string) => void;
+  onFinishKo: (id: string) => void;
+  onClearKo: (id: string) => void;
 }
 
-export default function ActiveGamesAdmin({
-  scenario,
-  tournamentDate,
-  teams,
-  results,
-  startedAt,
-  liveScores,
-  onStartSlot,
-  onClearStart,
-  onAdjust,
-  onFinish,
-}: Props) {
+export default function ActiveGamesAdmin(props: Props) {
+  const {
+    scenario,
+    tournamentDate,
+    teams,
+    results,
+    startedAt,
+    liveScores,
+    onStartSlot,
+    onClearStart,
+    onAdjust,
+    onFinish,
+  } = props;
   const now = useTicker();
   const active = activeGroupMatches(scenario, startedAt, results);
   const [selId, setSelId] = useState<string | null>(null);
   const selected = active.find((m) => m.id === selId) ?? active[0] ?? null;
 
-  // ── No active game: offer to start the next slot ───────────────────────────
+  // ── No active group game: next group slot, or hand over to the KO flow ──────
   if (!selected) {
     const next = nextActionSlot(slotTimeline(scenario, tournamentDate, startedAt, results, now));
-    const due = next?.status === 'due';
-    const untilMs = next?.epoch != null ? next.epoch - now : null;
+    // group phase fully played → live KO scoring takes over
+    if (!next) {
+      return (
+        <KoActive
+          scenario={scenario}
+          teams={teams}
+          results={results}
+          startedAt={startedAt}
+          liveScores={liveScores}
+          liveSets={props.liveSets}
+          onStartKo={props.onStartKo}
+          onAdjustKo={props.onAdjustKo}
+          onEndKo={props.onEndKo}
+          onUndoKo={props.onUndoKo}
+          onFinishKo={props.onFinishKo}
+          onClearKo={props.onClearKo}
+          onStartSlot={onStartSlot}
+          onAdjustScore={onAdjust}
+          onFinishMatch={onFinish}
+          onClearStart={onClearStart}
+        />
+      );
+    }
+    const due = next.status === 'due';
+    const untilMs = next.epoch != null ? next.epoch - now : null;
     return (
       <div>
         <h2 className="mb-6 text-3xl font-bold uppercase">Aktive Spiele</h2>
