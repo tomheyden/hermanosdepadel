@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { newTournamentId, storage } from '../lib/storage';
 import { deriveScenario, getScenario } from '../data/scenarios';
-import { awardPoint } from '../lib/tennis';
+import { awardPoint, isTieBreakSet } from '../lib/tennis';
 import type {
   GroupId,
+  MatchFormat,
   MatchResult,
   SetScore,
   SlotId,
@@ -340,13 +341,13 @@ export function useLibrary() {
     [mutateActive],
   );
 
-  /** Score a point for a side; cascades game → set automatically (15/30/40/GP). */
+  /** Score a point; cascades game → set (15/30/40/GP), or plain points in the tie-break. */
   const koPoint = useCallback(
-    (matchId: string, side: 'home' | 'away') =>
+    (matchId: string, side: 'home' | 'away', format: MatchFormat) =>
       mutateActive((t) => {
         const sets = t.liveSets?.[matchId] ?? [{ home: 0, away: 0 }];
         const game = t.liveGame?.[matchId] ?? { home: 0, away: 0 };
-        const next = awardPoint(sets, game, side);
+        const next = awardPoint(sets, game, side, format);
         return {
           ...t,
           liveSets: { ...(t.liveSets ?? {}), [matchId]: next.sets },
@@ -356,10 +357,16 @@ export function useLibrary() {
     [mutateActive],
   );
 
-  /** Take a point back within the current game (for mis-taps). */
+  /** Take the last point back (current game, or the tie-break point). */
   const koPointBack = useCallback(
-    (matchId: string, side: 'home' | 'away') =>
+    (matchId: string, side: 'home' | 'away', format: MatchFormat) =>
       mutateActive((t) => {
+        const sets = (t.liveSets?.[matchId] ?? [{ home: 0, away: 0 }]).map((s) => ({ ...s }));
+        if (isTieBreakSet(sets, format)) {
+          const last = sets.length - 1;
+          sets[last][side] = Math.max(0, sets[last][side] - 1);
+          return { ...t, liveSets: { ...(t.liveSets ?? {}), [matchId]: sets } };
+        }
         const game = { ...(t.liveGame?.[matchId] ?? { home: 0, away: 0 }) };
         game[side] = Math.max(0, game[side] - 1);
         return { ...t, liveGame: { ...(t.liveGame ?? {}), [matchId]: game } };

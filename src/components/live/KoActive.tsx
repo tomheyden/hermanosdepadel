@@ -1,10 +1,10 @@
-import type { MatchResult, Scenario, SetScore, SlotId, Team } from '../../types';
+import type { MatchFormat, MatchResult, Scenario, SetScore, SlotId, Team } from '../../types';
 import type { ResolvedKoMatch } from '../../lib/bracket';
 import { resolveBracket } from '../../lib/bracket';
 import { computeQualification } from '../../lib/qualification';
 import { evaluateMatch } from '../../lib/match';
 import { activeKoMatches, nextKoSlot, koFinished } from '../../lib/koLive';
-import { setWinsOf, koWinner, isGoldenPoint, pointLabel } from '../../lib/tennis';
+import { setWinsOf, koWinner, isGoldenPoint, isTieBreakSet, pointLabel } from '../../lib/tennis';
 import { remainingSeconds, formatMMSS } from '../../lib/liveStatus';
 import { teamName, formatLabel } from '../../lib/display';
 import { useTicker } from '../../hooks/useTicker';
@@ -21,8 +21,8 @@ interface Props {
   liveGame: Record<string, SetScore>;
   // tennis-scored KO (points → games → sets)
   onStartKo: (id: string) => void;
-  onKoPoint: (id: string, side: 'home' | 'away') => void;
-  onKoPointBack: (id: string, side: 'home' | 'away') => void;
+  onKoPoint: (id: string, side: 'home' | 'away', format: MatchFormat) => void;
+  onKoPointBack: (id: string, side: 'home' | 'away', format: MatchFormat) => void;
   onFinishKo: (id: string) => void;
   onClearKo: (id: string) => void;
   // single-game KO (bonus, americano) — reuses the group flow
@@ -201,13 +201,14 @@ function KoMatchCard({
     );
   }
 
-  // ── Tennis-scored KO (points → games → sets) ───────────────────────────────
+  // ── Tennis-scored KO (points → games → sets, with a tie-break 3rd set) ──────
   const sets = liveSets[id] ?? [{ home: 0, away: 0 }];
   const game = liveGame[id] ?? { home: 0, away: 0 };
-  const wins = setWinsOf(sets);
-  const winner = koWinner(sets);
+  const wins = setWinsOf(sets, format);
+  const winner = koWinner(sets, format);
   const decided = winner !== null;
-  const golden = isGoldenPoint(game);
+  const inTieBreak = isTieBreakSet(sets, format);
+  const golden = !inTieBreak && isGoldenPoint(game);
 
   return (
     <div className="rounded-3xl border border-ink/10 bg-white p-6 md:p-8">
@@ -219,7 +220,8 @@ function KoMatchCard({
         homeSetsWon={wins.home}
         awaySetsWon={wins.away}
         activeIndex={sets.length - 1}
-        gamePoints={decided ? undefined : { home: pointLabel(game.home), away: pointLabel(game.away) }}
+        tieBreakIndex={format.tieBreakTarget ? 2 : undefined}
+        gamePoints={decided || inTieBreak ? undefined : { home: pointLabel(game.home), away: pointLabel(game.away) }}
         goldenPoint={golden}
         winner={winner}
         variant="light"
@@ -227,14 +229,19 @@ function KoMatchCard({
 
       {!decided && (
         <div className="mt-5 rounded-2xl bg-paper p-3">
+          {inTieBreak && (
+            <p className="mb-2 rounded-lg bg-court/10 px-3 py-1.5 text-center font-display text-xs font-bold uppercase tracking-wide text-court">
+              Tie-Break · bis {format.tieBreakTarget} (normal gezählt)
+            </p>
+          )}
           {golden && (
             <p className="mb-2 rounded-lg bg-accent/20 px-3 py-1.5 text-center font-display text-xs font-bold uppercase tracking-wide text-accent-ink">
               Golden Point · der nächste Punkt entscheidet das Spiel
             </p>
           )}
           <div className="grid grid-cols-2 gap-3">
-            <PointButton name={home} onPlus={() => onKoPoint(id, 'home')} onBack={() => onKoPointBack(id, 'home')} />
-            <PointButton name={away} onPlus={() => onKoPoint(id, 'away')} onBack={() => onKoPointBack(id, 'away')} />
+            <PointButton name={home} onPlus={() => onKoPoint(id, 'home', format)} onBack={() => onKoPointBack(id, 'home', format)} />
+            <PointButton name={away} onPlus={() => onKoPoint(id, 'away', format)} onBack={() => onKoPointBack(id, 'away', format)} />
           </div>
         </div>
       )}

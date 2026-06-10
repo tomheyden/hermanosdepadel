@@ -6,7 +6,7 @@ import { slotTimeline, nextActionSlot, formatRemaining } from '../../lib/timelin
 import { resolveBracket, type ResolvedKoMatch } from '../../lib/bracket';
 import { computeQualification } from '../../lib/qualification';
 import { activeKoMatches, nextKoSlot } from '../../lib/koLive';
-import { setWinsOf, koWinner, isGoldenPoint, pointLabel } from '../../lib/tennis';
+import { setWinsOf, koWinner, isGoldenPoint, isTieBreakSet, pointLabel } from '../../lib/tennis';
 import { useTicker } from '../../hooks/useTicker';
 import SetScoreboard from './SetScoreboard';
 
@@ -193,9 +193,10 @@ function KoLiveCard({
   const sets = liveSets ?? [{ home: 0, away: 0 }];
   const game = liveGame ?? { home: 0, away: 0 };
   const single = liveScore ?? { home: 0, away: 0 };
-  const wins = setWinsOf(sets);
-  const winner = koWinner(sets);
-  const golden = isGoldenPoint(game);
+  const wins = setWinsOf(sets, format);
+  const winner = koWinner(sets, format);
+  const inTieBreak = isTieBreakSet(sets, format);
+  const golden = !inTieBreak && isGoldenPoint(game);
 
   return (
     <div className="overflow-hidden rounded-3xl border border-accent bg-court-soft ko-champion-glow">
@@ -216,7 +217,8 @@ function KoLiveCard({
             homeSetsWon={wins.home}
             awaySetsWon={wins.away}
             activeIndex={sets.length - 1}
-            gamePoints={winner ? undefined : { home: pointLabel(game.home), away: pointLabel(game.away) }}
+            tieBreakIndex={format.tieBreakTarget ? 2 : undefined}
+            gamePoints={winner || inTieBreak ? undefined : { home: pointLabel(game.home), away: pointLabel(game.away) }}
             goldenPoint={golden}
             winner={winner}
             variant="dark"

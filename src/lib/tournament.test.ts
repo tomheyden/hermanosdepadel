@@ -107,9 +107,8 @@ describe('Scenario 6 KO timings — reference plan + bonus round', () => {
     expect([at('F').time, at('P3').time]).toEqual(['15:19', '15:19']);
     expect(at('F').court).toBe(1);
     expect(at('P3').court).toBe(2);
-    // KO matches: best-of-3 sets, best-of-3 games per set (no match tie-break)
-    expect(at('F').format).toMatchObject({ type: 'bestOfSets', sets: 3, setTarget: 2 });
-    expect(at('F').format.tieBreakTarget).toBeUndefined();
+    // KO matches: best-of-3, sets to 4 games, match tie-break to 7 at 1–1
+    expect(at('F').format).toMatchObject({ type: 'bestOfSets', sets: 3, setTarget: 4, tieBreakTarget: 7 });
   });
 
   it('top-4 scenarios have no bonus round', () => {

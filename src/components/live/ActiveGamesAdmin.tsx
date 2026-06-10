@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { MatchResult, Scenario, SetScore, SlotId, Team } from '../../types';
+import type { MatchFormat, MatchResult, Scenario, SetScore, SlotId, Team } from '../../types';
 import { teamName } from '../../lib/display';
 import { remainingSeconds, formatMMSS } from '../../lib/liveStatus';
 import { activeGroupMatches } from '../../lib/activeGames';
@@ -22,8 +22,8 @@ interface Props {
   onAdjust: (id: string, side: 'home' | 'away', delta: number) => void;
   onFinish: (id: string) => void;
   onStartKo: (id: string) => void;
-  onKoPoint: (id: string, side: 'home' | 'away') => void;
-  onKoPointBack: (id: string, side: 'home' | 'away') => void;
+  onKoPoint: (id: string, side: 'home' | 'away', format: MatchFormat) => void;
+  onKoPointBack: (id: string, side: 'home' | 'away', format: MatchFormat) => void;
   onFinishKo: (id: string) => void;
   onClearKo: (id: string) => void;
 }
