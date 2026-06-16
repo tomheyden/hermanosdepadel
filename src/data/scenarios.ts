@@ -122,11 +122,12 @@ interface ScenarioSpec {
   /** builds the KO bracket given the computed group-phase end time. */
   buildKo: (groupEnd: string) => KoMatchDef[];
   /**
-   * Optional Variant-B group order: each entry is the group id playing a full
-   * round (both courts) in that time slot. Keeps a group out of adjacent slots
-   * so no team plays back-to-back. Omit → default interleaved scheduling.
+   * Optional Variant-B slot plan: `[court1Group, court2Group]` per time slot,
+   * each pulling that group's next round-robin match. A slot can be one group on
+   * both courts or two groups in parallel. Keeps every team out of adjacent
+   * slots so nobody plays back-to-back. Omit → default interleaved scheduling.
    */
-  slotGroupOrder?: string[];
+  slotPlan?: Array<[string, string]>;
 }
 
 const SCENARIO_SPECS: ScenarioSpec[] = [
@@ -210,10 +211,22 @@ const SCENARIO_SPECS: ScenarioSpec[] = [
     groupSizes: [4, 4, 4],
     groupDuration: 11,
     qualification: { topPerGroup: 2, bestRunnersUp: 2, bestRunnersUpRank: 3, qualifierCount: 8 },
-    // Variant B: one group's full round per slot, both courts. Order starts
-    // G1, G3, G2 and then runs G1, G2, G3 — so no group (and thus no team) ever
-    // plays in two adjacent slots. G1→slots 1/4/7, G3→2/6/9, G2→3/5/8.
-    slotGroupOrder: ['G1', 'G3', 'G2', 'G1', 'G2', 'G3', 'G1', 'G2', 'G3'],
+    // Variant B (mixed): the FIRST three slots are special — G1 plays a full
+    // round alone (both courts), then G2 & G3 split their round across the next
+    // two slots in parallel. After that, round 1 of every group is done and the
+    // plan runs NORMALLY, one group per slot: G1, G2, G3 (round 2), then
+    // G1, G2, G3 (round 3). No team ever plays in two adjacent slots.
+    slotPlan: [
+      ['G1', 'G1'], // Runde 1: nur Gruppe 1
+      ['G2', 'G3'], // Runde 1: Gruppe 2 + Gruppe 3 parallel
+      ['G2', 'G3'], // Runde 1: Gruppe 2 + Gruppe 3 parallel
+      ['G1', 'G1'], // ab hier normal: Gruppe 1 (Runde 2)
+      ['G2', 'G2'], // Gruppe 2 (Runde 2)
+      ['G3', 'G3'], // Gruppe 3 (Runde 2)
+      ['G1', 'G1'], // Gruppe 1 (Runde 3)
+      ['G2', 'G2'], // Gruppe 2 (Runde 3)
+      ['G3', 'G3'], // Gruppe 3 (Runde 3)
+    ],
     // Final ends ~15:39 (after the "Finale der Herzen" pushes it to 15:09 + 30 min).
     endTime: '15:39',
     koSummary:
@@ -267,7 +280,7 @@ function buildScenario(spec: ScenarioSpec): Scenario {
     spec.groupDuration,
     AMERICANO,
     GAP,
-    spec.slotGroupOrder,
+    spec.slotPlan,
   );
 
   // group phase end = latest start + match duration
