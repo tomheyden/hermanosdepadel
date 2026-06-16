@@ -73,38 +73,50 @@ describe('buildGroupSchedule — must reproduce the hand-given Scenario 1 plan',
   });
 });
 
-describe('buildGroupSchedule — must reproduce the hand-given Scenario 6 plan (3×4)', () => {
+describe('buildGroupSchedule — Scenario 6 Variant B (3×4, group order G1·G3·G2 / G1·G2·G3)', () => {
   const groups: GroupDef[] = [1, 2, 3].map((n) => ({
     id: `G${n}`,
     label: `Gruppe ${n}`,
     slots: [`G${n}.1`, `G${n}.2`, `G${n}.3`, `G${n}.4`],
   }));
-  const schedule = buildGroupSchedule(groups, '11:10', 11, AMERICANO, 3);
+  const order = ['G1', 'G3', 'G2', 'G1', 'G2', 'G3', 'G1', 'G2', 'G3'];
+  const schedule = buildGroupSchedule(groups, '11:10', 11, AMERICANO, 3, order);
 
-  // Exact reference plan supplied by the organiser (Szenario 6).
+  // One full group round per slot (both courts), in the configured order.
   const expected: Array<[string, 1 | 2, string, string]> = [
     ['11:10', 1, 'G1.1', 'G1.4'],
-    ['11:10', 2, 'G2.1', 'G2.4'],
+    ['11:10', 2, 'G1.2', 'G1.3'],
     ['11:24', 1, 'G3.1', 'G3.4'],
-    ['11:24', 2, 'G1.2', 'G1.3'],
-    ['11:38', 1, 'G2.2', 'G2.3'],
-    ['11:38', 2, 'G3.2', 'G3.3'],
+    ['11:24', 2, 'G3.2', 'G3.3'],
+    ['11:38', 1, 'G2.1', 'G2.4'],
+    ['11:38', 2, 'G2.2', 'G2.3'],
     ['11:52', 1, 'G1.1', 'G1.3'],
-    ['11:52', 2, 'G2.1', 'G2.3'],
-    ['12:06', 1, 'G3.1', 'G3.3'],
-    ['12:06', 2, 'G1.4', 'G1.2'],
-    ['12:20', 1, 'G2.4', 'G2.2'],
+    ['11:52', 2, 'G1.4', 'G1.2'],
+    ['12:06', 1, 'G2.1', 'G2.3'],
+    ['12:06', 2, 'G2.4', 'G2.2'],
+    ['12:20', 1, 'G3.1', 'G3.3'],
     ['12:20', 2, 'G3.4', 'G3.2'],
     ['12:34', 1, 'G1.1', 'G1.2'],
-    ['12:34', 2, 'G2.1', 'G2.2'],
-    ['12:48', 1, 'G3.1', 'G3.2'],
-    ['12:48', 2, 'G1.3', 'G1.4'],
-    ['13:02', 1, 'G2.3', 'G2.4'],
+    ['12:34', 2, 'G1.3', 'G1.4'],
+    ['12:48', 1, 'G2.1', 'G2.2'],
+    ['12:48', 2, 'G2.3', 'G2.4'],
+    ['13:02', 1, 'G3.1', 'G3.2'],
     ['13:02', 2, 'G3.3', 'G3.4'],
   ];
 
   it('matches every slot, court and pairing', () => {
     const actual = schedule.map((m) => [m.time, m.court, m.home, m.away]);
     expect(actual).toEqual(expected);
+  });
+
+  it('no team plays in two consecutive time slots (no back-to-back)', () => {
+    const times = [...new Set(schedule.map((m) => m.time))].sort();
+    const teamsAt = (t: string) =>
+      new Set(schedule.filter((m) => m.time === t).flatMap((m) => [m.home, m.away]));
+    for (let i = 1; i < times.length; i++) {
+      const prev = teamsAt(times[i - 1]);
+      const overlap = [...teamsAt(times[i])].filter((id) => prev.has(id));
+      expect(overlap).toEqual([]);
+    }
   });
 });

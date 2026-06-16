@@ -81,8 +81,39 @@ export function buildGroupSchedule(
   matchDuration: number,
   format: MatchFormat,
   gap = 3,
+  slotGroupOrder?: string[],
 ): GroupMatchDef[] {
   const slotStep = matchDuration + gap;
+
+  // ── Variant B: one full group-round per time slot (both courts) ─────────────
+  // `slotGroupOrder` lists the group id playing in each time slot, in order.
+  // Each entry consumes that group's next round (its 2 matches → court 1 & 2).
+  // As long as no group appears in two adjacent slots, no team plays back-to-back.
+  if (slotGroupOrder && slotGroupOrder.length) {
+    const rounds = new Map(groups.map((g) => [g.id, roundRobinRounds(g.slots)]));
+    const cursor = new Map<string, number>(groups.map((g) => [g.id, 0]));
+    const out: GroupMatchDef[] = [];
+    slotGroupOrder.forEach((groupId, slotIdx) => {
+      const idx = cursor.get(groupId) ?? 0;
+      cursor.set(groupId, idx + 1);
+      const round = rounds.get(groupId)?.[idx] ?? [];
+      const time = addMinutes(startTime, slotIdx * slotStep);
+      round.forEach((pair, courtIdx) => {
+        const court = (courtIdx === 0 ? 1 : 2) as CourtId;
+        out.push({
+          id: `G-${time.replace(':', '')}-P${court}`,
+          kind: 'group',
+          time,
+          court,
+          group: groupId,
+          home: pair[0],
+          away: pair[1],
+          format,
+        });
+      });
+    });
+    return out;
+  }
 
   // Per-group ordered match queues (circle-method order).
   const queues = groups.map((g) => ({ id: g.id, matches: groupMatchOrder(g.slots) }));

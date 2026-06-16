@@ -6,7 +6,7 @@ import { computeQualification } from '../lib/qualification';
 import { resolveBracket, computeFinalStandings, computeBonusStandings } from '../lib/bracket';
 import { teamName } from '../lib/display';
 import type { MatchResult, Scenario, SetScore, SlotId, Team } from '../types';
-import { TrophyIcon } from '../components/icons';
+import { TrophyIcon, WarnIcon } from '../components/icons';
 import { Countdown, useCountdown, formatTournamentDate } from '../components/Countdown';
 import Bracket from '../components/live/Bracket';
 import AllMatches from '../components/live/AllMatches';
@@ -45,6 +45,7 @@ export default function LiveView() {
     <Beamer
       phase={phase}
       tournamentDate={tournament.tournamentDate}
+      criticalMessage={tournament.criticalMessage}
       state={{
         teams: tournament.teams,
         results: tournament.results,
@@ -101,11 +102,13 @@ function WaitingScreen({
 function Beamer({
   phase,
   tournamentDate,
+  criticalMessage,
   state,
   scenario,
 }: {
   phase: 'published' | 'live';
   tournamentDate?: string;
+  criticalMessage?: string;
   state: {
     teams: Record<SlotId, Team>;
     results: Record<string, MatchResult>;
@@ -183,6 +186,23 @@ function Beamer({
       </header>
 
       <div className="mx-auto max-w-[100rem] space-y-10 px-6 py-8 md:px-8 md:py-10">
+        {criticalMessage?.trim() && (
+          <section
+            role="alert"
+            className="flex items-start gap-3 rounded-2xl border border-amber-400/60 bg-amber-400/15 px-5 py-4 md:px-6"
+          >
+            <WarnIcon className="mt-0.5 h-6 w-6 shrink-0 text-amber-300 md:h-7 md:w-7" />
+            <div>
+              <p className="font-display text-xs font-bold uppercase tracking-[0.2em] text-amber-300">
+                Wichtige Meldung
+              </p>
+              <p className="mt-1 whitespace-pre-line text-base font-medium text-paper md:text-lg">
+                {criticalMessage}
+              </p>
+            </div>
+          </section>
+        )}
+
         {preview && countdown && (
           <section className="rounded-3xl bg-court-soft px-6 py-10 text-center">
             <p className="font-display text-sm font-semibold uppercase tracking-[0.25em] text-accent">

@@ -7,6 +7,7 @@ import type { TournamentPhase } from '../types';
 import PasswordGate from '../components/live/PasswordGate';
 import Overview from '../components/live/Overview';
 import TeamEditor from '../components/live/TeamEditor';
+import CriticalMessageEditor from '../components/live/CriticalMessageEditor';
 import ActiveGamesAdmin from '../components/live/ActiveGamesAdmin';
 import ScheduleView from '../components/live/ScheduleView';
 import GroupStandings from '../components/live/GroupStandings';
@@ -143,6 +144,11 @@ export default function Live() {
                 onUnpublish={actions.unpublishTournament}
                 onGoLive={actions.goLive}
                 onEndLive={actions.endLive}
+              />
+
+              <CriticalMessageEditor
+                value={active.criticalMessage ?? ''}
+                onSave={actions.setCriticalMessage}
               />
 
               {tab === 'teams' && (

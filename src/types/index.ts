@@ -168,6 +168,10 @@ export interface TournamentState {
   /** epoch ms when the admin went LIVE: scoring + the time-aware "next / due"
    *  detection are active. Only meaningful for the published tournament. */
   tournamentStartedAt?: number;
+  /** optional critical announcement the admin broadcasts to teams; shown as a
+   *  prominent banner at the top of the public tournament view. Empty/absent →
+   *  no banner. */
+  criticalMessage?: string;
 }
 
 /**

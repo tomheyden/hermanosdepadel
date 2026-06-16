@@ -121,6 +121,12 @@ interface ScenarioSpec {
   koSummary: string;
   /** builds the KO bracket given the computed group-phase end time. */
   buildKo: (groupEnd: string) => KoMatchDef[];
+  /**
+   * Optional Variant-B group order: each entry is the group id playing a full
+   * round (both courts) in that time slot. Keeps a group out of adjacent slots
+   * so no team plays back-to-back. Omit → default interleaved scheduling.
+   */
+  slotGroupOrder?: string[];
 }
 
 const SCENARIO_SPECS: ScenarioSpec[] = [
@@ -204,6 +210,10 @@ const SCENARIO_SPECS: ScenarioSpec[] = [
     groupSizes: [4, 4, 4],
     groupDuration: 11,
     qualification: { topPerGroup: 2, bestRunnersUp: 2, bestRunnersUpRank: 3, qualifierCount: 8 },
+    // Variant B: one group's full round per slot, both courts. Order starts
+    // G1, G3, G2 and then runs G1, G2, G3 — so no group (and thus no team) ever
+    // plays in two adjacent slots. G1→slots 1/4/7, G3→2/6/9, G2→3/5/8.
+    slotGroupOrder: ['G1', 'G3', 'G2', 'G1', 'G2', 'G3', 'G1', 'G2', 'G3'],
     // Final ends ~15:39 (after the "Finale der Herzen" pushes it to 15:09 + 30 min).
     endTime: '15:39',
     koSummary:
@@ -251,7 +261,14 @@ function withBonusRound(
 // ── Assemble the scenarios ───────────────────────────────────────────────────
 function buildScenario(spec: ScenarioSpec): Scenario {
   const groups = makeGroups(spec.groupSizes);
-  const groupSchedule = buildGroupSchedule(groups, START_TIME, spec.groupDuration, AMERICANO, GAP);
+  const groupSchedule = buildGroupSchedule(
+    groups,
+    START_TIME,
+    spec.groupDuration,
+    AMERICANO,
+    GAP,
+    spec.slotGroupOrder,
+  );
 
   // group phase end = latest start + match duration
   const lastStart = groupSchedule.reduce(

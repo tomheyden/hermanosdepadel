@@ -212,6 +212,13 @@ export function useLibrary() {
     [mutateActive],
   );
 
+  /** Set/clear the critical announcement shown to teams on the public view. */
+  const setCriticalMessage = useCallback(
+    (message: string) =>
+      mutateActive((t) => ({ ...t, criticalMessage: message.trim() ? message.trim() : undefined })),
+    [mutateActive],
+  );
+
   /** Override a single slot's time (keyed by its base time). Empty → back to plan. */
   const setSlotTime = useCallback(
     (baseTime: string, time: string) =>
@@ -449,6 +456,7 @@ export function useLibrary() {
       updateTeam,
       setGroupLabel,
       setTournamentDate,
+      setCriticalMessage,
       setSlotTime,
       reflowTimes,
       resetSlotTimes,
