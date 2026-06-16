@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { MatchResult, Scenario, SetScore, SlotId, SlotRef, Team } from '../../types';
 import { computeQualification, eliminatedLabel, seedLabel } from '../../lib/qualification';
+import { everyTeamHasPlayed } from '../../lib/standings';
 import { resolveBracket, computeFinalStandings } from '../../lib/bracket';
 import { teamName } from '../../lib/display';
 import { TrophyIcon } from '../icons';
@@ -30,15 +31,13 @@ export default function BracketView({
 }: Props) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const qualification = computeQualification(scenario, teams, results);
-  // Only fill the KO with real teams once the group phase is decided; until
-  // then the slots show "Gruppensieger 1" etc.
-  const eliminated = qualification.complete ? qualification.eliminated : [];
-  const bracket = resolveBracket(
-    scenario,
-    qualification.complete ? qualification.seeds : [],
-    results,
-    eliminated,
-  );
+  // Show a (provisional) KO preview as soon as every team has played once, so
+  // teams can see their likely opponent and prepare; the seeding only becomes
+  // final once the whole group phase is decided. Before the first round is
+  // complete the slots stay as "Setzplatz 1" etc.
+  const preview = everyTeamHasPlayed(scenario, teams, results);
+  const eliminated = preview ? qualification.eliminated : [];
+  const bracket = resolveBracket(scenario, preview ? qualification.seeds : [], results, eliminated);
   const places = computeFinalStandings(bracket);
   const champion = places?.find((p) => p.place === 1);
 

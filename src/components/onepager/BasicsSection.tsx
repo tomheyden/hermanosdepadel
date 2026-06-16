@@ -1,11 +1,9 @@
-// Basic facts first — clean, unambiguous numbers. Details about the format
-// follow in the Americano and Ablauf sections below.
+// Just the essentials — when, where, how big. No format details.
 
 const STATS = [
   { value: '11:00–16:00', label: 'Turniertag', sub: 'rund 5 Stunden Padel' },
-  { value: '11:10', label: 'Erster Aufschlag', sub: '10 Min Orga-Puffer zum Start' },
-  { value: '2', label: 'Plätze', sub: 'durchgehend parallel bespielt' },
-  { value: '3 Min', label: 'Pause', sub: 'zwischen zwei Spielen' },
+  { value: 'Donauinsel', label: 'Wien', sub: 'open-air, mitten im Grünen' },
+  { value: 'Drinks & Musik', label: 'Den ganzen Tag', sub: 'kühle Getränke & gute Stimmung' },
 ];
 
 export default function BasicsSection() {
@@ -16,15 +14,15 @@ export default function BasicsSection() {
           <span className="bg-accent px-2 py-0.5">Die Eckdaten</span>
         </p>
         <h2 className="mt-5 text-4xl font-bold uppercase leading-tight md:text-5xl">
-          Ein straff getakteter Spieltag
+          Ein Tag voller Padel
         </h2>
         <p className="mt-4 text-lg leading-relaxed text-muted">
-          Gespielt wird in zwei Phasen: zuerst die Gruppenphase im
-          Americano-Modus, anschließend die KO-Phase bis ins Finale.
+          Ein entspannter Spieltag auf der Donauinsel — vom ersten Aufschlag
+          am Vormittag bis zum Finale am Nachmittag.
         </p>
       </div>
 
-      <dl className="grid grid-cols-2 gap-px overflow-hidden rounded-2xl border border-ink/10 bg-ink/10 lg:grid-cols-4">
+      <dl className="grid grid-cols-1 gap-px overflow-hidden rounded-2xl border border-ink/10 bg-ink/10 sm:grid-cols-3">
         {STATS.map((stat) => (
           <div key={stat.label} className="reveal bg-white p-7 md:p-8">
             <dd className="font-display text-4xl font-bold leading-none text-court md:text-5xl">

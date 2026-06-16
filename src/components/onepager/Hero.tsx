@@ -1,27 +1,20 @@
 import { ArrowDownIcon, PinIcon } from '../icons';
 
 /**
- * Photographic, full-bleed dark hero: a padel ball on a deep racing-green
- * gradient. The image is already on-brand dark green, so the overlay is light
- * in the middle (ball stays visible) and stronger at top/bottom to keep the
- * location pill, claim and CTA crisp. The logo rolls in like a ball.
+ * Full-bleed dark hero on the brand's deep racing green. A subtle radial
+ * highlight in the upper centre gives the flat colour depth without any
+ * photography. The logo rolls in like a ball.
  */
 export default function Hero() {
   return (
-    <header className="relative flex min-h-[100svh] flex-col items-center justify-center overflow-hidden px-6 py-24 text-center text-paper">
-      {/* background photo + overlays */}
-      <img
-        src="/ball-green.jpg"
-        alt=""
-        aria-hidden="true"
-        className="absolute inset-0 h-full w-full object-cover"
-      />
+    <header className="relative flex min-h-[100svh] flex-col items-center justify-center overflow-hidden bg-court px-6 py-24 text-center text-paper">
+      {/* depth: soft radial glow over the flat green */}
       <div
         aria-hidden="true"
         className="absolute inset-0"
         style={{
           background:
-            'linear-gradient(180deg, rgba(0,44,30,0.78) 0%, rgba(0,44,30,0.30) 38%, rgba(0,44,30,0.32) 62%, rgba(0,44,30,0.95) 100%)',
+            'radial-gradient(120% 80% at 50% 22%, rgba(10,69,48,0.85) 0%, rgba(0,44,30,0.6) 45%, rgba(0,44,30,1) 100%)',
         }}
       />
 
@@ -52,7 +45,7 @@ export default function Hero() {
         </p>
 
         <a href="#rahmen" className="reveal mt-10 btn-accent">
-          Zum Ablauf
+          Mehr erfahren
           <ArrowDownIcon className="h-5 w-5" />
         </a>
       </div>

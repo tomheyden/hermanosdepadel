@@ -96,6 +96,20 @@ export function isGroupPhaseComplete(
   return scenario.groupSchedule.every((m) => evaluateMatch(results[m.id], m.format).complete);
 }
 
+/**
+ * True once every team in every group has at least one completed match. This is
+ * the point where a (still provisional) overall ranking and KO preview become
+ * meaningful — before that some teams have no results at all.
+ */
+export function everyTeamHasPlayed(
+  scenario: Scenario,
+  teams: Record<SlotId, Team>,
+  results: Record<string, MatchResult>,
+): boolean {
+  const all = computeAllStandings(scenario, teams, results);
+  return scenario.groups.every((g) => all[g.id].every((s) => s.played >= 1));
+}
+
 /** Convenience: standings for every group, keyed by group id. */
 export function computeAllStandings(
   scenario: Scenario,

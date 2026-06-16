@@ -202,18 +202,18 @@ const SCENARIO_SPECS: ScenarioSpec[] = [
     name: '12 Teams · Top 8',
     description: '12 Teams, 3 Vierergruppen. Top 2 je Gruppe plus die 2 besten Dritten.',
     groupSizes: [4, 4, 4],
-    groupDuration: 12,
+    groupDuration: 11,
     qualification: { topPerGroup: 2, bestRunnersUp: 2, bestRunnersUpRank: 3, qualifierCount: 8 },
-    // Final ends ~15:49 (after the "Finale der Herzen" pushes it to 15:19 + 30 min).
-    endTime: '15:49',
+    // Final ends ~15:39 (after the "Finale der Herzen" pushes it to 15:09 + 30 min).
+    endTime: '15:39',
     koSummary:
       'Viertelfinale, Halbfinale & Finale: Best-of-3 Sätze, Sätze bis 4 Spiele (Zählung 15/30/40, Golden Point), bei 1:1 Match-Tie-Break bis 7 · max. 30 Min pro Spiel.',
-    // 30-minute slots for QF & SF: QF 13:25/13:58, SF 14:31, then the Finale der
-    // Herzen (15:04), Finale 15:19. Sets to 4 games (tennis points) + tie-break to 7.
+    // 30-minute slots for QF & SF: QF 13:16/13:49, SF 14:22, then the Finale der
+    // Herzen (14:55), Finale 15:09. Sets to 4 games (tennis points) + tie-break to 7.
     buildKo: (groupEnd) => {
-      const qfStart = addMinutes(groupEnd, GAP); // 13:22 + 3 = 13:25
-      const sfStart = addMinutes(qfStart, 2 * (30 + GAP)); // two QF waves → 14:31
-      const finalStart = addMinutes(sfStart, 30 + GAP); // 15:04 (before bonus shift)
+      const qfStart = addMinutes(groupEnd, GAP); // 13:13 + 3 = 13:16
+      const sfStart = addMinutes(qfStart, 2 * (30 + GAP)); // two QF waves → 14:22
+      const finalStart = addMinutes(sfStart, 30 + GAP); // 14:55 (before bonus shift)
       return buildKo8(qfStart, 30, BO3_TO_4, sfStart, BO3_TO_4, finalStart, BO3_TO_4);
     },
   },

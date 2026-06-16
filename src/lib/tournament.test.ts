@@ -95,16 +95,16 @@ describe('computeQualification', () => {
 });
 
 describe('Scenario 6 KO timings — reference plan + bonus round', () => {
-  it('12-min groups, 30-min KO: QF 13:25/13:58, SF 14:31, Finale der Herzen 15:04, Final 15:19', () => {
+  it('11-min groups, 30-min KO: QF 13:16/13:49, SF 14:22, Finale der Herzen 14:55, Final 15:09', () => {
     const ko = getScenario(6)!.koSchedule;
     const at = (id: string) => ko.find((m) => m.id === id)!;
-    expect([at('QF1').time, at('QF2').time]).toEqual(['13:25', '13:25']);
-    expect([at('QF3').time, at('QF4').time]).toEqual(['13:58', '13:58']);
-    expect([at('SF1').time, at('SF2').time]).toEqual(['14:31', '14:31']);
-    // "Finale der Herzen" sits in the gap; final/P3 move back one bonus slot (15 min)
-    expect([at('BONUS1').time, at('BONUS2').time]).toEqual(['15:04', '15:04']);
+    expect([at('QF1').time, at('QF2').time]).toEqual(['13:16', '13:16']);
+    expect([at('QF3').time, at('QF4').time]).toEqual(['13:49', '13:49']);
+    expect([at('SF1').time, at('SF2').time]).toEqual(['14:22', '14:22']);
+    // "Finale der Herzen" sits in the gap; final/P3 move back one bonus slot (14 min)
+    expect([at('BONUS1').time, at('BONUS2').time]).toEqual(['14:55', '14:55']);
     expect([at('BONUS1').court, at('BONUS2').court]).toEqual([1, 2]);
-    expect([at('F').time, at('P3').time]).toEqual(['15:19', '15:19']);
+    expect([at('F').time, at('P3').time]).toEqual(['15:09', '15:09']);
     expect(at('F').court).toBe(1);
     expect(at('P3').court).toBe(2);
     // KO matches: best-of-3, sets to 4 games, match tie-break to 7 at 1–1

@@ -142,7 +142,7 @@ function Beamer({
             <img src="/logo.svg" alt="" aria-hidden="true" className="h-11 w-11" />
             <div>
               <p className="font-display text-xl font-bold uppercase tracking-wide md:text-2xl">
-                Hermanos de Padel · {preview ? 'Vorschau' : 'Live'}
+                Hermanos de Padel · {preview ? 'Donauinselturnier' : 'Live'}
               </p>
               <p className="text-sm text-paper/70">
                 {scenario.name}
